@@ -1,9 +1,12 @@
 """Exclusion filter for job postings based on title patterns and YOE requirements.
 
 Rejects jobs that are clearly mismatched: senior/staff/director-level titles,
-pure sales/support/recruiting/engineering/clinical/trades roles, internships,
-contract-only positions, and jobs requiring more years of experience than the
-candidate has (~2.5 years, threshold set to 4).
+pure sales/support/recruiting/clinical/trades roles, contract-only positions,
+and jobs requiring more years of experience than the candidate has (~2.5 years,
+threshold set to 4).
+
+Note: internship exclusion is handled per-lane via role_lanes.json
+negative_keywords, not globally here.
 """
 from __future__ import annotations
 
@@ -66,15 +69,6 @@ PURE_RECRUITING = re.compile(
     re.IGNORECASE,
 )
 
-ENGINEERING_HEAVY = re.compile(
-    r"\b(software engineer|devops engineer|sre|site reliability|"
-    r"ml engineer|machine learning engineer|data engineer|"
-    r"platform engineer|infrastructure engineer|backend engineer|"
-    r"frontend engineer|full stack engineer|ios engineer|"
-    r"android engineer|systems engineer)\b",
-    re.IGNORECASE,
-)
-
 CLINICAL = re.compile(
     r"\b(nurse|nursing|clinical|pharmacist|pharmacy|lab scientist|"
     r"physician|therapist|radiologist|pathologist)\b",
@@ -86,8 +80,6 @@ TRADES = re.compile(
     r"hvac|carpenter|machinist)\b",
     re.IGNORECASE,
 )
-
-INTERNSHIP = re.compile(r"\bintern\b|\binternship\b", re.IGNORECASE)
 
 CONTRACT_ONLY = re.compile(
     r"\b(contract|contractor|temporary|temp position)\b",
@@ -104,8 +96,8 @@ def check_exclusions(job: RawJob) -> str | None:
     """Check whether a job should be excluded based on title and description patterns.
 
     Runs a chain of regex checks against the title and description:
-    1. Role-type exclusions (sales, support, recruiting, engineering, clinical, trades)
-    2. Internship / contract-only exclusions
+    1. Role-type exclusions (sales, support, recruiting, clinical, trades)
+    2. Contract-only exclusions
     3. Seniority-level exclusions (senior, staff, director, VP, etc.)
     4. Manager-title exclusions (unless PM/program/product/scrum)
     5. Years-of-experience extraction and threshold check
@@ -128,18 +120,11 @@ def check_exclusions(job: RawJob) -> str | None:
     if PURE_RECRUITING.search(title):
         return f"pure_recruiting_title: {title}"
 
-    if ENGINEERING_HEAVY.search(title):
-        if not re.search(r"\banalyst\b", title, re.IGNORECASE):
-            return f"engineering_title: {title}"
-
     if CLINICAL.search(title):
         return f"clinical_title: {title}"
 
     if TRADES.search(title):
         return f"trades_title: {title}"
-
-    if INTERNSHIP.search(title):
-        return f"internship: {title}"
 
     if CONTRACT_ONLY.search(title) and not CONTRACT_TO_HIRE.search(title) and not CONTRACT_TO_HIRE.search(desc[:500]):
         if "contract" in title.lower() and "analyst" not in title.lower():

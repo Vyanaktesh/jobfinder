@@ -106,6 +106,7 @@ SCORING DIMENSIONS:
    - 1 = Misaligned with career direction
 
 3. Sponsorship Likelihood (1-5): Based on the company's H1B history and the job description, how likely is sponsorship?
+   - If H1B Flag is NA, this is an INTERNSHIP — internships run on CPT/OPT, not H1B sponsorship, so this is not a blocker. Always score 5 for NA regardless of H1B history.
    - 5 = Company has strong H1B track record (GREEN flag) and no anti-sponsorship language
    - 3 = Unknown or mixed signals
    - 1 = Explicitly states no sponsorship or "must be authorized to work"
@@ -144,13 +145,19 @@ def build_job_prompt(job: dict) -> str:
     desc_snippet = (job.get("description_text") or "")[:2000]
     h1b_flag = job.get("sponsorship_flag", "RED")
     h1b_count = job.get("h1b_count", 0)
+    is_internship = job.get("is_internship")
+    h1b_line = (
+        "H1B Flag: NA (internship — runs on CPT/OPT, no H1B sponsorship needed)"
+        if h1b_flag == "NA" or is_internship
+        else f"H1B Flag: {h1b_flag} (company filed {h1b_count or 0} H1B petitions recently)"
+    )
 
     return f"""JOB TO EVALUATE:
 Company: {job.get('company_name', 'Unknown')}
 Title: {job.get('title', 'Unknown')}
 Location: {job.get('location_parsed', 'Unknown')}
 Lane: {job.get('matched_lane', 'Unknown')}
-H1B Flag: {h1b_flag} (company filed {h1b_count} H1B petitions recently)
+{h1b_line}
 Posted: {job.get('posted_at', 'Unknown')}
 
 JOB DESCRIPTION (first 2000 chars):

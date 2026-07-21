@@ -52,7 +52,8 @@ class FilteredJob:
     match_score: float
     is_new: bool
     is_rotational: bool
-    sponsorship_flag: str  # GREEN / YELLOW / RED
+    is_internship: bool
+    sponsorship_flag: str  # GREEN / YELLOW / RED / NA (NA = internship, no H1B needed)
     h1b_count: int | None
     location_parsed: str
     dedup_key: str
@@ -79,6 +80,7 @@ class FilteredJob:
         match_score: float,
         is_new: bool = True,
         is_rotational: bool = False,
+        is_internship: bool = False,
         sponsorship_flag: str = "RED",
         h1b_count: int | None = None,
         location_parsed: str = "",
@@ -104,6 +106,7 @@ class FilteredJob:
             match_score=match_score,
             is_new=is_new,
             is_rotational=is_rotational,
+            is_internship=is_internship,
             sponsorship_flag=sponsorship_flag,
             h1b_count=h1b_count,
             location_parsed=location_parsed or raw.location_raw,

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     matched_lane    TEXT,
     match_score     REAL,
     is_rotational   INTEGER DEFAULT 0,
+    is_internship   INTEGER DEFAULT 0,
     sponsorship_flag TEXT,
     h1b_count       INTEGER,
     first_seen_at   TEXT NOT NULL DEFAULT (datetime('now')),
@@ -134,7 +135,19 @@ class JobDB:
 
     def _init_schema(self):
         self.conn.executescript(SCHEMA)
+        self._migrate_schema()
         self.conn.commit()
+
+    def _migrate_schema(self):
+        """Add columns to pre-existing databases that predate a schema change.
+
+        CREATE TABLE IF NOT EXISTS in SCHEMA only applies to brand-new DBs;
+        existing jobs.db files need explicit ALTER TABLE for new columns.
+        """
+        cols = {row[1] for row in self.conn.execute("PRAGMA table_info(jobs)").fetchall()}
+        if "is_internship" not in cols:
+            self.conn.execute("ALTER TABLE jobs ADD COLUMN is_internship INTEGER DEFAULT 0")
+            logger.info("Migrated jobs table: added is_internship column")
 
     def close(self):
         self.conn.close()
@@ -187,9 +200,9 @@ class JobDB:
                     )
 
                 self.conn.execute(
-                    """UPDATE jobs SET last_seen_at=?, is_active=1, sponsorship_flag=?, h1b_count=?
+                    """UPDATE jobs SET last_seen_at=?, is_active=1, sponsorship_flag=?, h1b_count=?, is_internship=?
                        WHERE dedup_key=?""",
-                    (datetime.now().isoformat(), job.sponsorship_flag, job.h1b_count, job.dedup_key),
+                    (datetime.now().isoformat(), job.sponsorship_flag, job.h1b_count, int(job.is_internship), job.dedup_key),
                 )
                 return False
 
@@ -197,14 +210,15 @@ class JobDB:
                 """INSERT INTO jobs (dedup_key, source_platform, company_token, company_name,
                    external_id, title, location_raw, location_parsed, description_text,
                    posted_at, apply_url, salary_raw, workplace_type, matched_lane,
-                   match_score, is_rotational, sponsorship_flag, h1b_count)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   match_score, is_rotational, is_internship, sponsorship_flag, h1b_count)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     job.dedup_key, job.source_platform, job.company_token, job.company_name,
                     job.external_id, job.title, job.location_raw, job.location_parsed,
                     job.description_text, job.posted_at.isoformat() if job.posted_at else None,
                     job.apply_url, job.salary_raw, job.workplace_type, job.matched_lane,
-                    job.match_score, int(job.is_rotational), job.sponsorship_flag, job.h1b_count,
+                    job.match_score, int(job.is_rotational), int(job.is_internship),
+                    job.sponsorship_flag, job.h1b_count,
                 ),
             )
             return True

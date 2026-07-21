@@ -6,7 +6,10 @@ import json
 import logging
 import logging.handlers
 import os
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib  # type: ignore
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,6 +22,7 @@ from rich.table import Table
 
 from src.db import JobDB
 from src.filters.exclusion_filter import check_exclusions
+from src.filters.internship import is_internship_title
 from src.filters.location_filter import is_us_location
 from src.filters.sponsorship import SponsorshipFilter
 from src.filters.title_matcher import TitleMatcher
@@ -266,6 +270,7 @@ def apply_filters(
             continue
 
         lane, score, is_rotational = match_result
+        is_intern = is_internship_title(job.title)
 
         # 4. Exclusion rules
         exclusion = check_exclusions(job)
@@ -274,18 +279,22 @@ def apply_filters(
             db.log_filter_rejection(run_id, job.company_name, job.title, "exclusion", exclusion, job.apply_url)
             continue
 
-        # 5. Sponsorship keyword filter
-        sp_phrase = sponsorship_filter.check(job.description_text)
-        if sp_phrase:
-            stats["no_sponsorship"] += 1
-            db.log_filter_rejection(run_id, job.company_name, job.title, "sponsorship", f"matched: '{sp_phrase}'", job.apply_url)
-            continue
+        # 5. Sponsorship keyword filter — skipped for internships. Internships
+        # run on CPT/OPT, not H1B sponsorship, so "no visa sponsorship" language
+        # in a JD (aimed at full-time conversion) doesn't disqualify the internship.
+        if not is_intern:
+            sp_phrase = sponsorship_filter.check(job.description_text)
+            if sp_phrase:
+                stats["no_sponsorship"] += 1
+                db.log_filter_rejection(run_id, job.company_name, job.title, "sponsorship", f"matched: '{sp_phrase}'", job.apply_url)
+                continue
 
         filtered = FilteredJob.from_raw(
             job,
             matched_lane=lane,
             match_score=score,
             is_rotational=is_rotational,
+            is_internship=is_intern,
             location_parsed=loc_parsed,
         )
         results.append(filtered)
@@ -380,11 +389,16 @@ async def run(platform_filter: str | None = None, verbose: bool = False,
     # Apply filters
     filtered = apply_filters(all_jobs, title_matcher, sponsorship_filter, max_age, db, run_id)
 
-    # H1B enrichment
+    # H1B enrichment — internships get an "NA" flag instead of GREEN/YELLOW/RED,
+    # since they don't require H1B sponsorship (CPT/OPT covers them).
     for job in filtered:
-        flag, count = h1b_lookup.lookup(job.company_name)
-        job.sponsorship_flag = flag
-        job.h1b_count = count
+        if job.is_internship:
+            job.sponsorship_flag = "NA"
+            job.h1b_count = None
+        else:
+            flag, count = h1b_lookup.lookup(job.company_name)
+            job.sponsorship_flag = flag
+            job.h1b_count = count
 
     # Dedup and store with periodic commits (Finding #6: checkpointing)
     new_count = 0

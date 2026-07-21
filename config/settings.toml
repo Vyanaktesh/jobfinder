@@ -1,9 +1,9 @@
 [scraping]
-request_delay_seconds = 0.5
-html_delay_seconds = 3.0
-max_retries = 3
-timeout_seconds = 30
-max_concurrent_per_platform = 5
+request_delay_seconds = 0.05
+html_delay_seconds = 1.0
+max_retries = 2
+timeout_seconds = 15
+max_concurrent_per_platform = 25
 
 [filtering]
 max_post_age_days = 7

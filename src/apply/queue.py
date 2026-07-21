@@ -72,7 +72,7 @@ def generate_queue() -> Path:
         job["score_display"] = f"{score:.1f}" if score else "?"
         # Sponsor badge
         flag = job.get("sponsorship_flag", "RED")
-        job["sponsor_class"] = {"GREEN": "sp-green", "YELLOW": "sp-yellow"}.get(flag, "sp-red")
+        job["sponsor_class"] = {"GREEN": "sp-green", "YELLOW": "sp-yellow", "NA": "sp-na"}.get(flag, "sp-red")
 
     ready = [j for j in jobs if j["resume_file"]]
     no_resume = [j for j in jobs if not j["resume_file"]]
@@ -125,6 +125,7 @@ h1 {{ font-size: 24px; font-weight: 700; color: #f0f3f6; }}
 .sp-green {{ background: rgba(63, 185, 80, 0.15); color: #3fb950; }}
 .sp-yellow {{ background: rgba(210, 153, 34, 0.15); color: #d29922; }}
 .sp-red {{ background: rgba(248, 81, 73, 0.15); color: #f85149; }}
+.sp-na {{ background: rgba(88, 166, 255, 0.15); color: #58a6ff; }}
 .tag-resume {{ background: rgba(63, 185, 80, 0.15); color: #3fb950; }}
 .tag-no-resume {{ background: rgba(248, 81, 73, 0.1); color: #484f58; }}
 

@@ -10,9 +10,11 @@
   const statusBar = document.getElementById('statusBar');
   const tbody = document.getElementById('jobBody');
   const headers = document.querySelectorAll('th.sortable');
+  const typeTabs = document.querySelectorAll('.type-tab');
 
   let sortCol = 'eval_global_score';
   let sortAsc = false;
+  let typeFilter = ''; // '' = all, 'fulltime', 'internship'
 
   // --- Finding #20: Persist filter state across page reloads ---
   const FILTERS_KEY = 'jobscraper_filters';
@@ -27,6 +29,7 @@
       newOnly: newOnly.checked,
       programOnly: programOnly.checked,
       hideApplied: hideApplied.checked,
+      typeFilter,
       sortCol,
       sortAsc,
     };
@@ -45,9 +48,16 @@
       newOnly.checked = !!state.newOnly;
       programOnly.checked = !!state.programOnly;
       hideApplied.checked = !!state.hideApplied;
+      typeFilter = state.typeFilter || '';
+      setActiveTab(typeFilter);
       if (state.sortCol) sortCol = state.sortCol;
       if (state.sortAsc !== undefined) sortAsc = state.sortAsc;
     } catch {}
+  }
+
+  function setActiveTab(type) {
+    typeFilter = type;
+    typeTabs.forEach(t => t.classList.toggle('active', t.dataset.type === type));
   }
 
   function applyFilters() {
@@ -78,6 +88,11 @@
       if (onlyNew && row.dataset.new !== '1') visible = false;
       if (onlyProgram && row.dataset.rotational !== '1') visible = false;
 
+      // Employment type filter — internships have their own dedicated tab so
+      // they're never silently mixed into (or hidden from) full-time results.
+      if (typeFilter === 'internship' && row.dataset.internship !== '1') visible = false;
+      if (typeFilter === 'fulltime' && row.dataset.internship === '1') visible = false;
+
       // AI score filter
       if (ai) {
         const action = row.dataset.evalaction || '';
@@ -97,7 +112,8 @@
       if (visible) shown++;
     });
 
-    statusBar.textContent = `Showing ${shown} of ${rows.length} jobs`;
+    const label = typeFilter === 'internship' ? 'internships' : typeFilter === 'fulltime' ? 'full-time jobs' : 'jobs';
+    statusBar.textContent = `Showing ${shown} of ${rows.length} ${label}`;
     saveFilterState();
   }
 
@@ -199,6 +215,13 @@
   newOnly.addEventListener('change', applyFilters);
   programOnly.addEventListener('change', applyFilters);
   hideApplied.addEventListener('change', applyFilters);
+
+  typeTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      setActiveTab(tab.dataset.type);
+      applyFilters();
+    });
+  });
 
   headers.forEach(h => {
     h.addEventListener('click', () => {
