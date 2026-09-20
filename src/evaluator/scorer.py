@@ -68,7 +68,7 @@ def build_profile_summary(profile: dict) -> str:
             exp_lines.append(f"  * {h}")
 
     tech = skills.get("technical", [])
-    cyber = skills.get("cybersecurity", [])
+    domain = skills.get("domain", [])
 
     primary = targets.get("primary", [])
     secondary = targets.get("secondary", [])
@@ -85,14 +85,14 @@ EXPERIENCE:
 {chr(10).join(exp_lines)}
 
 TECHNICAL SKILLS: {', '.join(tech)}
-CYBERSECURITY: {', '.join(cyber)}
+DOMAIN SKILLS: {', '.join(domain)}
 
 TARGET ROLES (primary): {', '.join(primary)}
 TARGET ROLES (secondary): {', '.join(secondary)}
 """
 
 
-EVAL_SYSTEM_PROMPT = """You are a job evaluation assistant. You score job postings against a candidate's profile across 5 dimensions, each on a 1-5 scale.
+EVAL_SYSTEM_PROMPT_TEMPLATE = """You are a job evaluation assistant. You score job postings against a candidate's profile across 5 dimensions, each on a 1-5 scale.
 
 SCORING DIMENSIONS:
 1. CV Match (1-5): How well do the candidate's skills, experience, and education align with the job requirements?
@@ -111,7 +111,7 @@ SCORING DIMENSIONS:
    - 3 = Unknown or mixed signals
    - 1 = Explicitly states no sponsorship or "must be authorized to work"
 
-4. Seniority Fit (1-5): Is the seniority level appropriate for ~2.5 years of experience?
+4. Seniority Fit (1-5): Is the seniority level appropriate for ~{years} years of experience?
    - 5 = Entry/early-career or associate level, perfect fit
    - 3 = Mid-level, might be a stretch but possible
    - 1 = Clearly requires 5+ years or senior/staff level
@@ -133,11 +133,18 @@ RESPONSE FORMAT (strict JSON):
 }
 
 Rules:
-- Be STRICT about seniority — with ~2.5 years experience, anything requiring 5+ years should score low
+- Be STRICT about seniority — with ~{years} years experience, anything requiring 5+ years should score low
 - Be STRICT about sponsorship — any "must be authorized" or "no sponsorship" language = score 1
 - Score each dimension independently; the downstream pipeline computes the weighted total and decides the action
 - Output ONLY valid JSON, no markdown fences, no explanation outside the JSON
 """
+
+
+def build_system_prompt(profile: dict) -> str:
+    """Fill the candidate's years of experience (from profile.yml) into the system prompt."""
+    years = profile.get("experience", {}).get("total_years", 2.5)
+    # str.replace, not .format(): the template contains literal JSON braces.
+    return EVAL_SYSTEM_PROMPT_TEMPLATE.replace("{years}", str(years))
 
 
 def build_job_prompt(job: dict) -> str:
@@ -188,7 +195,7 @@ class AIScorer:
         # across every job in a run, so marking them ephemeral saves ~80% of input
         # tokens on the 2nd through Nth call within the 5-min cache window.
         self._system_blocks = [
-            {"type": "text", "text": EVAL_SYSTEM_PROMPT},
+            {"type": "text", "text": build_system_prompt(self.profile)},
             {
                 "type": "text",
                 "text": self.profile_summary,

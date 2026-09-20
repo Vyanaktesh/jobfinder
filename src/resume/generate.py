@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 
 from src.resume.tailor import ResumeTailor, TailoredResume, load_master_resume
-from src.resume.pdf_gen import generate_resume_pdf
+from src.resume.pdf_gen import generate_resume_pdf, resume_filename_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +44,12 @@ def _save_cache(resume_dir: Path, cache: dict):
     cache_path.write_text(json.dumps(cache, indent=2))
 
 
-def _resume_exists(resume_dir: Path, company: str, title: str) -> bool:
+def _resume_exists(resume_dir: Path, company: str, title: str, prefix: str) -> bool:
     """Check if a resume PDF already exists for this company/title combo."""
     company_clean = re.sub(r'[^\w\s-]', '', company).strip().replace(' ', '_')
     title_clean = re.sub(r'[^\w\s-]', '', title).strip().replace(' ', '_')[:30]
     # Match any date suffix
-    pattern = f"Agarwal_Devansh_Resume_{company_clean}_{title_clean}_*.pdf"
+    pattern = f"{prefix}_{company_clean}_{title_clean}_*.pdf"
     return any(resume_dir.glob(pattern))
 
 
@@ -112,6 +112,9 @@ def generate_resumes(
         )
         return []
 
+    master = load_master_resume(master_path)
+    prefix = resume_filename_prefix(master)
+
     # --- Cache invalidation: check if master resume changed ---
     current_hash = _master_hash(master_path)
     cache = _load_cache(resume_dir)
@@ -123,7 +126,7 @@ def generate_resumes(
             f"clearing cached resumes"
         )
         # Delete all existing resume PDFs so they get regenerated
-        for old_pdf in resume_dir.glob("Agarwal_Devansh_Resume_*.pdf"):
+        for old_pdf in resume_dir.glob(f"{prefix}_*.pdf"):
             old_pdf.unlink(missing_ok=True)
         cache = {"master_hash": current_hash, "generated": {}}
     else:
@@ -135,7 +138,7 @@ def generate_resumes(
     for job in eligible:
         company = job.get("company_name", "Unknown")
         title = job.get("title", "Unknown")
-        if _resume_exists(resume_dir, company, title):
+        if _resume_exists(resume_dir, company, title, prefix):
             cached_count += 1
         else:
             to_generate.append(job)
@@ -153,7 +156,6 @@ def generate_resumes(
 
     logger.info(f"Generating tailored resumes for {len(to_generate)} new jobs...")
 
-    master = load_master_resume(master_path)
     tailor = ResumeTailor(master_path, model=model)
     generated = []
 

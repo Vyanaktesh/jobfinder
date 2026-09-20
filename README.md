@@ -5,7 +5,7 @@ Automated job search pipeline that scrapes public ATS APIs, filters for relevant
 ## What it does
 
 1. **Scrapes** 85+ companies across 6 ATS platforms (Greenhouse, Lever, Ashby, SmartRecruiters, Workable, Workday)
-2. **Filters** through 41 role lanes using fuzzy title matching (rapidfuzz), location filtering (US-only), seniority checks, exclusion rules, and sponsorship keyword blacklisting
+2. **Filters** through the configured role lanes (finance analyst roles by default) using fuzzy title matching (rapidfuzz), location filtering (US-only), seniority checks, exclusion rules, and sponsorship keyword blacklisting
 3. **Deduplicates** across platforms using SHA-256 keys in SQLite
 4. **Enriches** with H1B sponsorship likelihood (GREEN/YELLOW/RED) via employer fuzzy matching
 5. **Outputs** a dark-themed HTML dashboard with client-side sorting/filtering, plus a markdown digest
@@ -83,7 +83,7 @@ All APIs are free, public, and require no authentication.
 All config is in `config/` and fully editable:
 
 - **`companies.json`** — Seed companies by ATS platform. Each entry has a board token/slug and optional settings.
-- **`role_lanes.json`** — 41 role lanes with canonical titles, required keywords, boost/negative keywords, and fuzzy match thresholds.
+- **`role_lanes.json`** — the active role lanes (8 finance lanes: FP&A, Corporate Finance, Business Finance, Strategic Finance, Financial Planning, Pricing, Revenue, and a generic Financial/Finance Analyst lane). `role_lanes.software.json` keeps the original software/AI lanes; switch with `role_lanes_file` in `settings.toml`.
 - **`settings.toml`** — Scraping delays, filter thresholds, H1B thresholds, output paths.
 - **`sponsorship_blacklist.txt`** — Phrases in job descriptions that indicate no sponsorship (e.g., "unable to sponsor", "US citizens only").
 
@@ -102,11 +102,16 @@ Add an entry to the appropriate platform array in `companies.json`:
 ### Role lanes
 
 Each lane in `role_lanes.json` has:
-- `canonical_titles` — fuzzy-matched against job titles (token_set_ratio >= 75)
-- `required_keywords` — must appear in title or first 500 chars of description
+- `canonical_titles` — fuzzy-matched against job titles (token_set_ratio >= 70). Titles are normalized first, so `FP&A`, `FP and A`, and `Planning & Analysis` all compare equal.
 - `title_must_contain_any` (optional) — at least one must appear in the title itself
-- `negative_keywords` — instant reject if found in title
-- `boost_keywords` — raise match score above threshold
+- `title_role_any` (optional) — the title must also contain one of these role words as a whole word (e.g. `analyst`). This is what stops "Financial Advisor" from fuzzy-matching "Financial Analyst".
+- `required_keywords` — must appear in title or first 500 chars of description
+- `negative_keywords` — whole-word/phrase match against the **title only**; instant reject. Used for seniority (`senior`, `lead`, `manager`, `iii`...), internships, and look-alike careers (`accounting`, `tax`, `financial crimes`, `advisor`...). Remove `intern` from a lane's list if you want internships.
+- `boost_keywords` — each one found in the title or first 500 chars of the description raises the score 5%
+
+Ties between lanes (a "Corporate Finance Analyst" also fully matches "Finance Analyst") go to the closest canonical title, and the generic lane sits last in the file.
+
+To target a different field, copy `role_lanes.json`, edit the lanes, point `role_lanes_file` at it, and update `target_roles` in `config/profile.yml` to match.
 
 ## Filter Pipeline
 
@@ -114,7 +119,7 @@ Jobs pass through 5 sequential filters:
 
 1. **Date** — Posted within last 14 days (configurable)
 2. **Location** — US-based or US-remote only
-3. **Title match** — Fuzzy match against 41 role lanes, with seniority cap (rejects Staff/Principal/Director/VP+)
+3. **Title match** — Fuzzy match against the role lanes, with seniority cap (rejects Senior/Staff/Principal/Director/VP+ and level III+)
 4. **Exclusion rules** — Rejects 7+ YOE requirements, senior-only roles, pure engineering/sales/clinical titles, internships
 5. **Sponsorship blacklist** — Rejects if description contains "no sponsorship" etc.
 
@@ -170,7 +175,7 @@ job-scraper/
     scrapers/      # 6 ATS platform scrapers
     filters/       # Title, location, exclusion, sponsorship filters
     h1b/           # H1B employer lookup
-    output/        # Dashboard + digest generators
+    output/        # Dashboard + digest + CSV generators
     main.py        # Entry point
     models.py      # RawJob / FilteredJob dataclasses
     db.py          # SQLite schema + queries

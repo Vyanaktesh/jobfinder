@@ -39,6 +39,7 @@ TITLE_PREFILTER_TOKENS = {
     "program", "project", "product", "implementation", "transformation",
     "process", "rotation", "rotational", "finance", "planner", "planning",
     "coordinator", "manager", "engineer",
+    "financ", "pricing", "revenue", "fp&a", "budget", "forecast",
 }
 
 # Skip jobs gated behind clearances we don't have

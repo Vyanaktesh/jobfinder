@@ -6,6 +6,9 @@ timeout_seconds = 15
 max_concurrent_per_platform = 25
 
 [filtering]
+# Which lanes file in config/ to use. role_lanes.json = finance roles;
+# role_lanes.software.json = the original software/AI lanes.
+role_lanes_file = "role_lanes.json"
 max_post_age_days = 7
 min_match_score = 75
 high_confidence_score = 85

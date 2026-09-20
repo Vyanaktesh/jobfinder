@@ -23,31 +23,39 @@ experience:
     - title: "Your Title"
       company: "Company"
       duration: "~2.5 years"
-      domain: "Domain area, e.g. operations analytics, consulting"
+      domain: "Domain area, e.g. FP&A, corporate finance, pricing"
       highlights:
         - "Key accomplishment one"
         - "Key accomplishment two"
 
 skills:
   technical:
-    - "Tool / language one"
-    - "Tool / language two"
+    - "Advanced Excel"
+    - "SQL"
+    - "Python"
   domain:
-    - "Domain skill one"
+    - "Financial modeling"
+    - "Budgeting & forecasting"
+    - "Variance analysis"
   soft:
     - "Stakeholder management"
 
+# Keep these in sync with the lanes in config/role_lanes.json — the AI scorer uses
+# this list to judge how well each posting fits ("north star" score).
 target_roles:
   primary:
-    - "Business Analyst"
-    - "Data Analyst"
-    - "Operations Analyst"
+    - "Financial Analyst"
+    - "FP&A Analyst"
+    - "Corporate Finance Analyst"
+    - "Business Finance Analyst"
+    - "Strategic Finance Analyst"
+    - "Finance Analyst"
+    - "Financial Planning Analyst"
+    - "Pricing Analyst"
+    - "Revenue Analyst"
   secondary:
-    - "Project Manager / Coordinator"
-    - "Implementation Analyst"
-  stretch:
-    - "Associate Product Manager"
-    - "Rotational / Leadership Development Program"
+    - "Finance Rotational / Leadership Development Program"
+  stretch: []
 
 evaluation:
   # Scoring weights (must sum to 1.0)

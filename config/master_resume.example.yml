@@ -13,14 +13,15 @@ contact:
 
 # Multiple summary variants — the AI picks the closest and adapts it per job.
 summary_variants:
-  strategy_ops: >-
-    One- to three-sentence positioning statement for strategy/operations roles.
-  analytics_default: >-
-    Default summary emphasizing analytics, dashboards, and data work.
-  cybersecurity: >-
-    Summary emphasizing security, risk, and GRC experience.
-  data_analyst: >-
-    Summary emphasizing data pipelines, forecasting, and reporting.
+  fpa: >-
+    One- to three-sentence positioning statement for FP&A / financial planning roles
+    (budgeting, forecasting, variance analysis).
+  corporate_finance: >-
+    Summary emphasizing corporate finance, valuation, capital allocation, and financial modeling.
+  pricing_revenue: >-
+    Summary emphasizing pricing, margin, and revenue-driver analysis.
+  financial_analyst_default: >-
+    Default summary for general Financial Analyst / Finance Analyst roles.
 
 # Work history. Each role has a pool of bullets; the tailor selects/edits.
 experience:
@@ -31,7 +32,7 @@ experience:
     bullets:
       - "Quantified accomplishment with a metric (e.g. reduced X by 15%)."
       - "Cross-functional initiative you led and its outcome."
-      - "Tooling / technical work (e.g. built Power BI dashboards on SQL data)."
+      - "Tooling / technical work (e.g. built Excel dashboards and models for leadership reporting)."
 
 education:
   - degree: "MS Field (Concentration)"
@@ -45,7 +46,8 @@ education:
 
 # Skill pool — the tailor picks the subset relevant to each job.
 skills:
-  - "Power BI"
+  - "Financial Modeling"
+  - "Advanced Excel"
   - "SQL"
   - "Python"
   - "Stakeholder management"

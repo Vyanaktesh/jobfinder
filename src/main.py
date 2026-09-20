@@ -333,7 +333,8 @@ async def run(platform_filter: str | None = None, verbose: bool = False,
     concurrency = settings["scraping"].get("max_concurrent_per_platform", 5)
     max_age = settings["filtering"]["max_post_age_days"]
 
-    title_matcher = TitleMatcher(CONFIG_DIR / "role_lanes.json")
+    lanes_file = settings["filtering"].get("role_lanes_file", "role_lanes.json")
+    title_matcher = TitleMatcher(CONFIG_DIR / lanes_file)
     sponsorship_filter = SponsorshipFilter(CONFIG_DIR / "sponsorship_blacklist.txt")
     h1b_lookup = H1BLookup(
         BASE_DIR / settings["output"]["db_path"],

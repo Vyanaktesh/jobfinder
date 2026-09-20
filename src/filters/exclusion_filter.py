@@ -2,8 +2,8 @@
 
 Rejects jobs that are clearly mismatched: senior/staff/director-level titles,
 pure sales/support/recruiting/clinical/trades roles, contract-only positions,
-and jobs requiring more years of experience than the candidate has (~2.5 years,
-threshold set to 4).
+and jobs requiring more years of experience than the candidate has (early-career,
+threshold set to 4 via MAX_YOE_THRESHOLD).
 
 Note: internship exclusion is handled per-lane via role_lanes.json
 negative_keywords, not globally here.
@@ -26,7 +26,7 @@ SENIOR_TITLE = re.compile(
     re.IGNORECASE,
 )
 
-# Max YOE we can realistically target (~2.5 yrs experience)
+# Max YOE we can realistically target (early-career: ~2-3 yrs experience). Raise if you have more.
 MAX_YOE_THRESHOLD = 4
 
 MANAGER_TITLE = re.compile(r"\bmanager\b", re.IGNORECASE)

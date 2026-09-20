@@ -1,0 +1,114 @@
+{
+  "abbreviations": {
+    "sr": "senior",
+    "sr.": "senior",
+    "jr": "junior",
+    "jr.": "junior",
+    "sde": "software development engineer",
+    "swe": "software engineer",
+    "ml": "machine learning",
+    "ai": "artificial intelligence",
+    "llm": "large language model",
+    "nlp": "natural language processing",
+    "cv": "computer vision",
+    "fe": "frontend",
+    "be": "backend",
+    "fs": "full stack",
+    "api": "application programming interface",
+    "de": "data engineer",
+    "mle": "machine learning engineer",
+    "fde": "forward deployed engineer"
+  },
+  "lanes": [
+    {
+      "id": 1,
+      "lane": "AI Engineer",
+      "track": "ai",
+      "canonical_titles": ["AI Engineer", "Artificial Intelligence Engineer", "LLM Engineer", "Generative AI Engineer", "AI Application Engineer", "Applied AI Engineer", "AI Engineering Intern", "AI Engineer Intern", "Artificial Intelligence Intern"],
+      "required_keywords": [],
+      "title_must_contain_any": ["ai", "artificial intelligence", "llm", "generative", "genai"],
+      "boost_keywords": ["llm", "rag", "langchain", "langraph", "openai", "anthropic", "gemini", "vector", "embedding", "agent", "multiagent", "prompt"],
+      "negative_keywords": ["senior", "staff", "principal", "director", "vp", "lead", "head of", "manager", "research scientist", "phd"]
+    },
+    {
+      "id": 2,
+      "lane": "Machine Learning Engineer",
+      "track": "ai",
+      "canonical_titles": ["Machine Learning Engineer", "ML Engineer", "Applied ML Engineer", "ML Platform Engineer", "MLOps Engineer"],
+      "required_keywords": [],
+      "title_must_contain_any": ["machine learning", "ml engineer", "mlops", "mle"],
+      "boost_keywords": ["pytorch", "tensorflow", "model training", "inference", "mlflow", "feature engineering", "model deployment", "pipeline"],
+      "negative_keywords": ["senior", "staff", "principal", "director", "vp", "lead", "head of", "manager", "intern", "research scientist", "phd"]
+    },
+    {
+      "id": 3,
+      "lane": "Software Engineer",
+      "track": "swe",
+      "canonical_titles": ["Software Engineer", "Software Developer", "SDE", "SWE", "Application Engineer", "Software Development Engineer", "Developer Engineer", "Development Engineer", "Software Engineering Intern", "Software Engineer Intern", "SWE Intern", "Software Development Intern"],
+      "required_keywords": [],
+      "title_must_contain_any": ["software engineer", "software developer", "sde", "application engineer", "development engineer", "developer engineer"],
+      "boost_keywords": ["python", "backend", "api", "microservices", "cloud", "aws", "gcp", "azure", "fastapi", "django", "flask", "node"],
+      "negative_keywords": ["senior", "staff", "principal", "director", "vp", "lead", "head of", "manager", "embedded", "firmware", "hardware", "mobile ios", "android", "ios developer"]
+    },
+    {
+      "id": 4,
+      "lane": "Junior Software Engineer",
+      "track": "swe",
+      "canonical_titles": ["Junior Software Engineer", "Associate Software Engineer", "Entry Level Software Engineer", "Junior Developer", "New Grad Software Engineer"],
+      "required_keywords": [],
+      "title_must_contain_any": ["junior", "associate", "entry", "new grad", "early career", "graduate"],
+      "boost_keywords": ["python", "backend", "api", "cloud", "fullstack", "full stack"],
+      "negative_keywords": ["senior", "staff", "principal", "director", "vp", "lead", "head of", "manager", "intern", "embedded", "firmware", "hardware"]
+    },
+    {
+      "id": 5,
+      "lane": "Full Stack Engineer",
+      "track": "swe",
+      "canonical_titles": ["Full Stack Engineer", "Fullstack Engineer", "Full Stack Developer", "Fullstack Developer", "Full-Stack Engineer"],
+      "required_keywords": [],
+      "title_must_contain_any": ["full stack", "fullstack", "full-stack"],
+      "boost_keywords": ["react", "next.js", "typescript", "python", "node", "api", "aws", "fastapi"],
+      "negative_keywords": ["senior", "staff", "principal", "director", "vp", "lead", "head of", "manager", "intern"]
+    },
+    {
+      "id": 6,
+      "lane": "Backend Engineer",
+      "track": "swe",
+      "canonical_titles": ["Backend Engineer", "Back End Engineer", "Backend Developer", "API Engineer", "Platform Engineer", "Infrastructure Engineer"],
+      "required_keywords": [],
+      "title_must_contain_any": ["backend", "back end", "back-end", "api engineer", "platform engineer"],
+      "boost_keywords": ["python", "fastapi", "django", "node", "microservices", "postgresql", "redis", "kafka", "aws", "gcp"],
+      "negative_keywords": ["senior", "staff", "principal", "director", "vp", "lead", "head of", "manager", "intern"]
+    },
+    {
+      "id": 7,
+      "lane": "Data Engineer",
+      "track": "data",
+      "canonical_titles": ["Data Engineer", "Analytics Engineer", "Data Platform Engineer", "ETL Engineer", "Data Infrastructure Engineer"],
+      "required_keywords": [],
+      "title_must_contain_any": ["data engineer", "analytics engineer", "etl engineer", "data platform"],
+      "boost_keywords": ["spark", "airflow", "dbt", "databricks", "bigquery", "snowflake", "kafka", "pipeline", "medallion", "python", "sql"],
+      "negative_keywords": ["senior", "staff", "principal", "director", "vp", "lead", "head of", "manager", "intern"]
+    },
+    {
+      "id": 8,
+      "lane": "Software Engineer New Grad",
+      "track": "swe",
+      "canonical_titles": ["New Grad Software Engineer", "University Hire Software Engineer", "Early Career Engineer", "Software Engineer I", "SDE I"],
+      "required_keywords": [],
+      "title_must_contain_any": ["new grad", "university", "early career", "engineer i", "sde i", "level 1", "level i"],
+      "boost_keywords": ["python", "java", "backend", "cloud", "api"],
+      "negative_keywords": ["senior", "staff", "principal", "director", "vp", "lead", "head of", "manager", "phd required"]
+    },
+    {
+      "id": 9,
+      "lane": "Forward Deployed Engineer",
+      "track": "fde",
+      "canonical_titles": ["Forward Deployed Engineer", "Forward Deployed Software Engineer", "Deployment Strategist", "Deployed Engineer", "Solutions Engineer", "Forward Deployed Engineer Intern", "Forward Deployed Intern"],
+      "required_keywords": [],
+      "title_must_contain_any": ["forward deployed", "deployment strategist", "deployed engineer"],
+      "boost_keywords": ["client", "implementation", "customer", "deployment", "onsite", "python", "api", "integration", "consulting"],
+      "negative_keywords": ["senior", "staff", "principal", "director", "vp", "lead", "head of", "manager"]
+    }
+  ]
+}

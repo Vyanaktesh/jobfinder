@@ -39,5 +39,7 @@ config/profile.yml
 data/jobs.db-shm
 data/jobs.db-wal
 
-# Generated output artifacts (dashboards, digests, resumes, autofill w/ PII)
-output/
+# Generated output artifacts (dashboards, digests, resumes, autofill w/ PII).
+# Anchored with a leading slash: a bare `output/` also matched the source package
+# src/output/ (dashboard/digest/csv generators), so it was never committed.
+/output/

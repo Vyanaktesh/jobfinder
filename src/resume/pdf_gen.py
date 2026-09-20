@@ -20,7 +20,22 @@ from fpdf import FPDF
 
 from src.resume.tailor import TailoredResume, load_master_resume
 
+
 logger = logging.getLogger(__name__)
+
+
+def resume_filename_prefix(master: dict) -> str:
+    """'Last_First_Resume' built from contact.full_name in master_resume.yml.
+
+    "Devanshi Patel" -> "Patel_Devanshi_Resume"; "Mary Ann Lee" -> "Lee_Mary_Ann_Resume".
+    """
+    parts = re.sub(r"[^\w\s-]", "", master.get("contact", {}).get("full_name", "")).split()
+    if not parts:
+        return "Resume"
+    if len(parts) == 1:
+        return f"{parts[0]}_Resume"
+    return "_".join([parts[-1], *parts[:-1]]) + "_Resume"
+
 
 # Unicode → ASCII replacements for built-in PDF fonts
 _UNICODE_REPLACEMENTS = {
@@ -428,7 +443,7 @@ def generate_resume_pdf(
     company_clean = re.sub(r'[^\w\s-]', '', tailored.company_name).strip().replace(' ', '_')
     title_clean = re.sub(r'[^\w\s-]', '', tailored.job_title).strip().replace(' ', '_')[:30]
     timestamp = datetime.now().strftime("%Y%m%d")
-    filename = f"Agarwal_Devansh_Resume_{company_clean}_{title_clean}_{timestamp}.pdf"
+    filename = f"{resume_filename_prefix(master)}_{company_clean}_{title_clean}_{timestamp}.pdf"
 
     filepath = output_dir / filename
     pdf.output(str(filepath))

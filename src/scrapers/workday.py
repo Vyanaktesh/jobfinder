@@ -21,6 +21,7 @@ TITLE_PREFILTER_TOKENS = {
     "program", "project", "product", "implementation", "transformation",
     "process", "rotation", "rotational", "leadership development", "lcap",
     "finance", "supply", "planner", "planning", "manager", "coordinator",
+    "financ", "pricing", "revenue", "fp&a", "budget", "forecast",
 }
 
 # Concurrency for detail-page (description) fetches per company.
