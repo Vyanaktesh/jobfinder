@@ -41,7 +41,7 @@
         <option value="">All Sponsorship</option>
         <option value="GREEN">🟢 GREEN (10+ H1Bs)</option>
         <option value="YELLOW">🟡 YELLOW (1-9 H1Bs)</option>
-        <option value="RED">🔴 RED (No data)</option>
+        <option value="RED">🔴 No H1B info (unknown)</option>
         <option value="NA">🎓 N/A (Internship — no H1B needed)</option>
       </select>
       <select id="platformFilter">
@@ -110,7 +110,7 @@
           {% if job.is_internship %}
           <span class="sponsor-dot sponsor-na" title="Internship — runs on CPT/OPT, no H1B sponsorship needed">&#127891; N/A</span>
           {% else %}
-          <span class="sponsor-dot sponsor-{{ job.sponsorship_flag|lower }}" title="{{ job.h1b_count or 0 }} known H1B petitions">{{ job.sponsorship_flag }}{% if job.h1b_count %} · {{ job.h1b_count }}{% endif %}</span>
+          <span class="sponsor-dot sponsor-{{ job.sponsorship_flag|lower }}" title="{% if job.sponsorship_flag == 'RED' %}No H1B record for this company (may still sponsor){% else %}{{ job.h1b_count or 0 }} known H1B petitions{% endif %}">{{ "NO INFO" if job.sponsorship_flag == "RED" else job.sponsorship_flag }}{% if job.h1b_count %} · {{ job.h1b_count }}{% endif %}</span>
           {% endif %}
         </td>
         <td class="score-cell">{{ "%.0f"|format(job.match_score) }}</td>
