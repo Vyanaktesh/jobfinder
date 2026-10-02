@@ -54,8 +54,10 @@ def slug_candidates(name: str) -> list[str]:
     if not words:
         return []
     core = [w for w in words if w not in STOP_WORDS] or words
-    cands = ["".join(words), "-".join(words), "".join(core), "-".join(core), core[0]]
-    if len(core) > 1:
+    # Never fall back to just the first word of a multi-word name: "Charles Schwab" -> "charles"
+    # or "Pure Storage" -> "pure" are *other* companies' boards.
+    cands = ["".join(words), "-".join(words), "".join(core), "-".join(core)]
+    if len(core) > 2:
         cands.append("".join(core[:2]))
     out = []
     for c in cands:

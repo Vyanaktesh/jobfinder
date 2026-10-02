@@ -214,8 +214,13 @@ async def main(candidates=None, write=False):
     if write and accepted:
         cfg = BASE_DIR / "config" / "companies.json"
         data = json.loads(cfg.read_text())
-        have = {(c.get("tenant"), c.get("site")) for c in data.get("workday", [])}
-        new = [a for a in accepted if (a["tenant"], a["site"]) not in have]
+        have = {(c.get("tenant", "").lower(), c.get("site", "").lower()) for c in data.get("workday", [])}
+        new = []
+        for a in accepted:
+            k = (a["tenant"].lower(), a["site"].lower())
+            if k not in have:
+                have.add(k)
+                new.append(a)
         data.setdefault("workday", []).extend(new)
         cfg.write_text(json.dumps(data, indent=2))
         print(f"Added {len(new)} Workday boards to {cfg}")
