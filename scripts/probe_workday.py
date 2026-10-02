@@ -5,7 +5,15 @@ Hits the listing endpoint with offset=0/limit=1 and reports:
   - total job count (if any)
 
 Run:
-  .venv/bin/python scripts/probe_workday.py
+  .venv/bin/python scripts/probe_workday.py            # curated CANDIDATES list
+  .venv/bin/python scripts/probe_workday.py --h1b      # also probe your H1B sponsors (from the DB
+                                                       # or output/h1b_no_board_found.txt)
+  .venv/bin/python scripts/probe_workday.py --h1b --write   # and add validated boards to companies.json
+
+--h1b guesses tenant slugs from company names and tries several datacenters
+(wd1/3/5/12/103) and common site names. Only boards that actually return jobs
+are kept, so nothing unverified is written. Needs internet; Workday rate-limits,
+so it is deliberately throttled (expect ~10 minutes per 50 companies).
 
 Prints a JSON snippet at the end ready to paste into config/companies.json
 for tenants that returned >0 jobs.
@@ -21,6 +29,7 @@ import httpx
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
+sys.path.insert(0, str(BASE_DIR / "scripts"))
 
 
 # Curated candidate list. Format: (tenant, wd, site, display_name)
@@ -131,43 +140,101 @@ async def probe(tenant: str, wd: str, site: str, client: httpx.AsyncClient) -> t
         return -1, -1
 
 
-async def main():
+WD_HOSTS = ["wd1", "wd5", "wd3", "wd12", "wd103"]
+
+
+def generated_candidates(names: list[str], known_tenants: set[str]) -> list[tuple]:
+    """Build (tenant, wds, sites, name) guesses for sponsors from their names."""
+    from find_h1b_boards import slug_candidates  # noqa: PLC0415
+    out = []
+    for name in names:
+        # Workday tenants are usually the short brand name, so try the shortest slugs first
+        for tenant in sorted((c for c in slug_candidates(name) if "-" not in c), key=len)[:2]:
+            if tenant in known_tenants:
+                continue
+            sites = ["External", "Careers", "External_Career_Site", tenant, f"{tenant}careers", "jobs"]
+            out.append((tenant, WD_HOSTS, sites, name))
+    return out
+
+
+def load_h1b_names() -> list[str]:
+    miss = BASE_DIR / "output" / "h1b_no_board_found.txt"
+    if miss.exists() and miss.read_text().strip():
+        return [l.strip() for l in miss.read_text().splitlines() if l.strip()]
+    import sqlite3
+    conn = sqlite3.connect(str(BASE_DIR / "data" / "jobs.db"))
+    rows = conn.execute("SELECT employer_name FROM h1b_employers GROUP BY employer_name_normalized "
+                        "ORDER BY SUM(worker_count) DESC").fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+async def main(candidates=None, write=False):
+    candidates = candidates or CANDIDATES
     accepted: list[dict] = []
     failed: list[str] = []
+
+    sem = asyncio.Semaphore(8)
+
+    async def try_candidate(client, tenant, wds, sites, name):
+        for wd in wds:
+            for site in sites:
+                async with sem:
+                    status, total = await probe(tenant, wd, site, client)
+                    await asyncio.sleep(0.15)
+                label = f"{name:<32} {tenant}.{wd}/{site}"
+                if status == 200 and total > 0:
+                    print(f"  OK   {label:<70} {total} jobs")
+                    return {"tenant": tenant, "wd": wd, "site": site, "name": name}
+                if status == 200:
+                    print(f"  ZERO {label:<70} 0 jobs (live but empty)")
+        return None
 
     async with httpx.AsyncClient(
         follow_redirects=True,
         headers={"User-Agent": "JobScraper/1.0"},
         timeout=15.0,
     ) as client:
-        for tenant, wds, sites, name in CANDIDATES:
-            found = False
-            for wd in wds:
-                for site in sites:
-                    status, total = await probe(tenant, wd, site, client)
-                    label = f"{name:<32} {tenant}.{wd}/{site}"
-                    if status == 200 and total > 0:
-                        print(f"  OK   {label:<70} {total} jobs")
-                        accepted.append({"tenant": tenant, "wd": wd, "site": site, "name": name})
-                        found = True
-                        break
-                    elif status == 200 and total == 0:
-                        print(f"  ZERO {label:<70} 0 jobs (live but empty)")
-                    else:
-                        print(f"  --   {label:<70} HTTP {status}")
-                if found:
-                    break
-            if not found:
-                failed.append(name)
+        results = await asyncio.gather(*(try_candidate(client, *c) for c in candidates))
+    seen_names = set()
+    for c, r in zip(candidates, results):
+        if r and r["name"] not in seen_names:  # first working slug per company
+            accepted.append(r)
+            seen_names.add(r["name"])
+    failed = sorted({c[3] for c in candidates} - seen_names)
 
     print()
-    print(f"Validated: {len(accepted)} / {len(CANDIDATES)}")
+    print(f"Validated: {len(accepted)} / {len(candidates)}")
     if failed:
         print(f"Failed:    {', '.join(failed)}")
     print()
     print("--- Paste this into config/companies.json under \"workday\": ---")
     print(json.dumps(accepted, indent=2))
 
+    if write and accepted:
+        cfg = BASE_DIR / "config" / "companies.json"
+        data = json.loads(cfg.read_text())
+        have = {(c.get("tenant", "").lower(), c.get("site", "").lower()) for c in data.get("workday", [])}
+        new = []
+        for a in accepted:
+            k = (a["tenant"].lower(), a["site"].lower())
+            if k not in have:
+                have.add(k)
+                new.append(a)
+        data.setdefault("workday", []).extend(new)
+        cfg.write_text(json.dumps(data, indent=2))
+        print(f"Added {len(new)} Workday boards to {cfg}")
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--h1b", action="store_true", help="also probe H1B sponsors by name")
+    ap.add_argument("--write", action="store_true", help="add validated boards to companies.json")
+    ap.add_argument("--limit", type=int, default=150, help="max H1B sponsors to probe (default 150)")
+    a = ap.parse_args()
+    cands = list(CANDIDATES)
+    if a.h1b:
+        known = {t for t, *_ in CANDIDATES}
+        cands += generated_candidates(load_h1b_names()[: a.limit], known)
+    asyncio.run(main(cands, write=a.write))

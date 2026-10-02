@@ -1,0 +1,335 @@
+# Known H-1B sponsoring employers. One per line; optional ",count" (petitions/yr).
+# No count => treated as an established sponsor (GREEN). Add yours freely, or run:
+#   python scripts/import_h1b.py --url "<google sheet csv export url>"
+# IT services / consulting
+Cognizant Technology Solutions
+Infosys Limited
+Tata Consultancy Services
+Wipro Limited
+HCL America
+Tech Mahindra Americas
+LTIMindtree
+Capgemini America
+Accenture LLP
+Deloitte Consulting
+Deloitte & Touche
+Ernst & Young
+KPMG
+PricewaterhouseCoopers
+Mphasis Corporation
+Larsen & Toubro Infotech
+Syntel
+Virtusa
+Hexaware Technologies
+Persistent Systems
+Cyient
+Zensar Technologies
+NTT Data
+DXC Technology
+Genpact
+EXL Service
+WNS
+Ness Digital Engineering
+EPAM Systems
+Globant
+Thoughtworks
+Slalom
+Avanade
+Perficient
+Sapient
+Publicis Sapient
+Kforce
+Randstad
+Apex Systems
+Insight Global
+Robert Half
+Cisco Systems
+# Big tech
+Google
+Alphabet
+Amazon
+Amazon Web Services
+Amazon Development Center
+Microsoft
+Apple
+Meta Platforms
+Facebook
+Netflix
+Tesla
+Nvidia
+Intel
+AMD
+Qualcomm
+Broadcom
+Texas Instruments
+Micron Technology
+Applied Materials
+Lam Research
+KLA
+Marvell Semiconductor
+Western Digital
+Seagate
+Micro Focus
+VMware
+Dell Technologies
+HP Inc
+Hewlett Packard Enterprise
+Juniper Networks
+Arista Networks
+NetApp
+Pure Storage
+Nutanix
+Adobe
+Intuit
+Autodesk
+Salesforce
+Oracle
+SAP
+IBM
+ServiceNow
+Workday
+Splunk
+Snowflake
+Databricks
+Palantir
+Uber
+Lyft
+Airbnb
+DoorDash
+Instacart
+Pinterest
+Snap
+Twitter
+X Corp
+LinkedIn
+Yahoo
+eBay
+PayPal
+Block
+Square
+Stripe
+Coinbase
+Robinhood
+Affirm
+Plaid
+Chime
+SoFi
+Brex
+Ramp
+Marqeta
+Toast
+Shopify
+Atlassian
+Dropbox
+Box
+Zoom Video Communications
+DocuSign
+Twilio
+Okta
+Cloudflare
+Datadog
+MongoDB
+Elastic
+Confluent
+HashiCorp
+GitLab
+GitHub
+Slack Technologies
+Asana
+Notion Labs
+Figma
+Canva
+Airtable
+Zendesk
+HubSpot
+Squarespace
+Wix
+GoDaddy
+Akamai
+Fastly
+Zscaler
+CrowdStrike
+Palo Alto Networks
+Fortinet
+SentinelOne
+Rapid7
+Tenable
+Qualys
+Check Point
+OpenAI
+Anthropic
+Scale AI
+Samsara
+Verkada
+Flexport
+Rivian
+Lucid Motors
+Waymo
+Cruise
+Zoox
+Aurora Innovation
+Ford Motor Company
+General Motors
+Toyota
+Honda
+Bosch
+Continental
+Cummins
+Caterpillar
+John Deere
+GE
+Honeywell
+3M
+Boeing
+Lockheed Martin
+Raytheon
+Northrop Grumman
+General Dynamics
+SpaceX
+Blue Origin
+# Finance
+JPMorgan Chase
+Goldman Sachs
+Morgan Stanley
+Bank of America
+Citigroup
+Wells Fargo
+Capital One
+American Express
+Visa
+Mastercard
+Discover Financial
+Fidelity Investments
+Charles Schwab
+Vanguard
+BlackRock
+State Street
+Northern Trust
+BNY Mellon
+Barclays
+Deutsche Bank
+UBS
+Credit Suisse
+HSBC
+Nomura
+Citadel
+Jane Street
+Two Sigma
+Jump Trading
+DE Shaw
+Bloomberg
+S&P Global
+Moody's
+MSCI
+FactSet
+Fiserv
+FIS
+Jack Henry
+Intercontinental Exchange
+Nasdaq
+CME Group
+Travelers
+Allstate
+Progressive
+MetLife
+Prudential
+AIG
+Liberty Mutual
+State Farm
+USAA
+Aon
+Marsh McLennan
+# Healthcare / pharma
+UnitedHealth Group
+Optum
+CVS Health
+Cigna
+Humana
+Anthem
+Elevance Health
+Kaiser Permanente
+HCA Healthcare
+Cerner
+Epic Systems
+Oracle Health
+Pfizer
+Johnson & Johnson
+Merck
+AbbVie
+Bristol-Myers Squibb
+Eli Lilly
+Amgen
+Gilead Sciences
+Regeneron
+Moderna
+Genentech
+Roche
+Novartis
+Sanofi
+AstraZeneca
+GSK
+Abbott
+Medtronic
+Boston Scientific
+Illumina
+Thermo Fisher Scientific
+Veeva Systems
+IQVIA
+Syneos Health
+PPD
+# Retail / consumer / media
+Walmart
+Target
+Costco
+Home Depot
+Lowe's
+Best Buy
+Kroger
+Nike
+Starbucks
+PepsiCo
+Coca-Cola
+Procter & Gamble
+Unilever
+Walt Disney
+Warner Bros Discovery
+Comcast
+NBCUniversal
+Paramount
+Spotify
+Sony
+Electronic Arts
+Activision Blizzard
+Zynga
+Roblox
+Unity Technologies
+Epic Games
+Verizon
+AT&T
+T-Mobile
+Charter Communications
+Fedex
+UPS
+# Gov-adjacent / research / consulting
+Booz Allen Hamilton
+Leidos
+SAIC
+CACI
+MITRE
+Mckinsey & Company
+Boston Consulting Group
+Bain & Company
+Oliver Wyman
+Guidehouse
+Huron Consulting
+FTI Consulting
+Protiviti
+West Monroe
+RSM US
+Grant Thornton
+BDO
+Gartner
+Forrester
+Nielsen
+Kantar
+Ipsos

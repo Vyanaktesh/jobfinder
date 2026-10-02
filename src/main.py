@@ -28,19 +28,9 @@ from src.filters.sponsorship import SponsorshipFilter
 from src.filters.title_matcher import TitleMatcher
 from src.h1b.lookup import H1BLookup
 from src.models import FilteredJob, RawJob
-from src.evaluator.scorer import (
-    AIScorer,
-    get_all_evaluated_jobs,
-    get_unevaluated_jobs,
-    init_eval_schema,
-    save_evaluations,
-)
-from src.learning.learned_rules import LearnedRulesEngine
-from src.learning.feedback_import import import_feedback_file
 from src.apply.bookmarklet import generate_fill_js
 from src.apply.profile import load_profile
 from src.output.csv_export import export_csv
-from src.resume.generate import generate_resumes
 from src.output.dashboard import render_dashboard
 from src.output.digest import render_digest
 from src.scrapers.ashby import AshbyScraper
@@ -88,25 +78,13 @@ def setup_logging(verbose: bool = False):
     )
 
 
-def validate_environment(require_ai: bool = True):
-    """Validate required environment variables before expensive operations.
+SPONSOR_RANK = {"GREEN": 0, "YELLOW": 1, "NA": 2, "RED": 3}
 
-    Raises EnvironmentError with a clear message listing missing keys.
-    Finding #1: Prevents running scrapers for hours only to discover
-    the API key is missing during AI evaluation.
-    """
-    issues = []
-    if require_ai:
-        key = os.getenv("ANTHROPIC_API_KEY", "")
-        if not key:
-            issues.append("ANTHROPIC_API_KEY not set (needed for AI evaluation)")
-        elif len(key) < 20:
-            issues.append("ANTHROPIC_API_KEY looks invalid (too short)")
-    if issues:
-        raise EnvironmentError(
-            "Environment validation failed:\n  - " + "\n  - ".join(issues)
-            + "\n\nSet in .env file or export as environment variable."
-        )
+
+def sort_for_output(jobs: list[dict]) -> list[dict]:
+    """Order jobs: known H1B sponsors first (most petitions on top), then newest."""
+    jobs = sorted(jobs, key=lambda j: j.get("posted_at") or j.get("first_seen_at") or "", reverse=True)
+    return sorted(jobs, key=lambda j: (SPONSOR_RANK.get(j.get("sponsorship_flag"), 3), -(j.get("h1b_count") or 0)))
 
 
 def load_config():
@@ -181,16 +159,17 @@ async def scrape_platform(
             await asyncio.sleep(delay)
 
     try:
-        tasks = [scrape_one(c) for c in companies]
+        # Sliding window: the semaphore in scrape_one() already caps concurrency, so
+        # launch everything and let finished slots be refilled immediately. (Fixed
+        # batches of 50 made every batch wait for its single slowest company.)
+        total = len(companies)
         done = 0
-        batch_size = 50
-        for i in range(0, len(tasks), batch_size):
-            batch = tasks[i:i + batch_size]
-            await asyncio.gather(*batch)
-            done += len(batch)
-            if done % 200 == 0 or done == len(tasks):
+        for fut in asyncio.as_completed([scrape_one(c) for c in companies]):
+            await fut
+            done += 1
+            if done % 200 == 0 or done == total:
                 logging.getLogger(__name__).info(
-                    f"[{platform}] Progress: {done}/{len(companies)} companies scraped"
+                    f"[{platform}] Progress: {done}/{total} companies scraped"
                 )
     finally:
         # Ensure ALL scraper clients are closed even on cancellation (Finding #5)
@@ -306,27 +285,15 @@ def apply_filters(
     return results
 
 
-async def run(platform_filter: str | None = None, verbose: bool = False,
-              skip_ai: bool = False, generate_resumes_flag: bool = False):
-    """Main pipeline: scrape -> filter -> dedupe -> evaluate -> output.
+async def run(platform_filter: str | None = None, verbose: bool = False):
+    """Main pipeline: scrape -> filter -> H1B enrich -> dedupe -> output.
 
     Args:
         platform_filter: If set, only scrape this single platform.
         verbose: Enable debug logging.
-        skip_ai: Skip AI evaluation step (useful for testing scrape-only).
-        generate_resumes_flag: Generate tailored resume PDFs for top jobs.
     """
     setup_logging(verbose)
     logger = logging.getLogger(__name__)
-
-    # Finding #1: Validate environment before expensive operations
-    if not skip_ai:
-        try:
-            validate_environment(require_ai=True)
-        except EnvironmentError as e:
-            logger.warning(f"Environment check: {e}")
-            logger.warning("Continuing without AI evaluation")
-            skip_ai = True
 
     settings, companies = load_config()
     delay = settings["scraping"]["request_delay_seconds"]
@@ -359,14 +326,8 @@ async def run(platform_filter: str | None = None, verbose: bool = False,
 
     all_jobs: list[RawJob] = []
     errors: list[str] = []
-    for platform, company_list in companies.items():
-        if platform.startswith("_"):
-            continue
-        if platform_filter and platform != platform_filter:
-            continue
-        if not company_list:
-            continue
 
+    async def run_platform(platform: str, company_list: list):
         key = PLATFORM_KEY.get(platform)
         normalized = []
         for c in company_list:
@@ -377,12 +338,24 @@ async def run(platform_filter: str | None = None, verbose: bool = False,
 
         logger.info(f"Scraping {platform}: {len(normalized)} companies")
         try:
-            jobs = await scrape_platform(platform, normalized, delay, concurrency)
-            all_jobs.extend(jobs)
+            return await scrape_platform(platform, normalized, delay, concurrency)
         except Exception as e:
             error_msg = f"[{platform}] Platform error: {e}"
             logger.error(error_msg)
             errors.append(error_msg)
+            return []
+
+    # Platforms hit different hosts, so scrape them all at once instead of one
+    # after another — the slow ones (Workday) no longer wait behind Greenhouse.
+    todo = [
+        (platform, company_list)
+        for platform, company_list in companies.items()
+        if not platform.startswith("_")
+        and (not platform_filter or platform == platform_filter)
+        and company_list
+    ]
+    for platform_jobs in await asyncio.gather(*(run_platform(p, c) for p, c in todo)):
+        all_jobs.extend(platform_jobs)
 
     logger.info(f"Total raw jobs fetched: {len(all_jobs)}")
 
@@ -399,6 +372,12 @@ async def run(platform_filter: str | None = None, verbose: bool = False,
             flag, count = h1b_lookup.lookup(job.company_name)
             job.sponsorship_flag = flag
             job.h1b_count = count
+
+    # Optional: keep only companies with a known H1B record (settings.toml [h1b] only_sponsors)
+    if settings["h1b"].get("only_sponsors", False):
+        before = len(filtered)
+        filtered = [j for j in filtered if j.sponsorship_flag != "RED"]
+        logger.info(f"H1B-only mode: dropped {before - len(filtered)} jobs from companies with no H1B record")
 
     # Dedup and store with periodic commits (Finding #6: checkpointing)
     new_count = 0
@@ -472,73 +451,7 @@ async def run(platform_filter: str | None = None, verbose: bool = False,
         "total_companies": total_companies,
     }
 
-    # AI Evaluation — score unevaluated jobs (with learned-rules pre-filter)
-    # Finding #11: Use db (JobDB instance) instead of raw path for eval functions
-    init_eval_schema(db)
-
-    # Import any pending feedback from dashboard before mining rules
     output_dir = BASE_DIR / settings["output"]["dashboard_dir"]
-    feedback_path = output_dir / "feedback.json"
-    import_feedback_file(db.conn, feedback_path, logger)
-
-    # Initialize learning engine and mine rules from past evaluations
-    learning_engine = LearnedRulesEngine(db.conn)
-    rule_stats = learning_engine.mine_rules()
-    if any(v > 0 for v in rule_stats.values()):
-        logger.info(f"Learned rules updated: {rule_stats}")
-
-    if not skip_ai:
-        unevaluated = get_unevaluated_jobs(db)
-        if unevaluated:
-            # Apply learned rules to partition jobs
-            auto_skipped, boosted, to_evaluate = learning_engine.filter_for_eval(unevaluated)
-
-            if auto_skipped:
-                logger.info(
-                    f"Learned rules auto-skipped {len(auto_skipped)} jobs "
-                    f"(saved ~${len(auto_skipped) * 0.003:.2f} in API costs)"
-                )
-                # Save auto-skipped jobs with a placeholder evaluation
-                from src.evaluator.scorer import EvalResult
-                skip_results = [
-                    EvalResult(
-                        job_id=j["id"],
-                        global_score=0.0,
-                        reasoning=f"Auto-skipped by learned rule: {j.get('_auto_skip_reason', 'unknown')}",
-                        recommended_action="skip",
-                    )
-                    for j in auto_skipped
-                ]
-                save_evaluations(db, skip_results, model="learned_rules")
-
-            # AI-evaluate boosted jobs first, then the rest
-            eval_queue = boosted + to_evaluate
-            if eval_queue:
-                logger.info(
-                    f"AI evaluating {len(eval_queue)} jobs "
-                    f"({len(boosted)} boosted, {len(to_evaluate)} standard)..."
-                )
-                try:
-                    scorer = AIScorer(model="claude-haiku-4-5-20251001")
-                    eval_results = await scorer.evaluate_batch(
-                        eval_queue,
-                        concurrency=15,
-                        requests_per_minute=200,
-                        progress_callback=lambda done, total: logger.info(f"  Evaluated {done}/{total} jobs"),
-                    )
-                    save_evaluations(db, eval_results, model=scorer.model)
-                    apply_count = sum(1 for r in eval_results if r.global_score >= 3.0)
-                    consider_count = sum(1 for r in eval_results if 2.0 <= r.global_score < 3.0)
-                    logger.info(
-                        f"AI evaluation complete: {apply_count} apply / {consider_count} consider "
-                        f"out of {len(eval_results)} evaluated"
-                    )
-                except Exception as e:
-                    logger.error(f"AI evaluation failed (continuing without): {e}")
-            else:
-                logger.info("All new jobs were auto-skipped by learned rules")
-        else:
-            logger.info("No new jobs to AI-evaluate")
 
     # Regenerate autofill JS from applicant profile (so dashboard embeds latest)
     profile_path = CONFIG_DIR / "applicant_profile.yml"
@@ -551,8 +464,8 @@ async def run(platform_filter: str | None = None, verbose: bool = False,
         except Exception as e:
             logger.warning(f"Failed to generate autofill JS: {e}")
 
-    # Generate dashboard, digest, and CSV — use evaluated jobs
-    jobs_for_output = get_all_evaluated_jobs(db)
+    # Generate dashboard, digest, and CSV — H1B sponsors first, then newest
+    jobs_for_output = sort_for_output(db.get_all_active_jobs())
     templates_dir = BASE_DIR / "templates"
 
     dashboard_path = render_dashboard(jobs_for_output, run_stats, output_dir, templates_dir)
@@ -565,46 +478,8 @@ async def run(platform_filter: str | None = None, verbose: bool = False,
     csv_path = export_csv(jobs_for_output, output_dir)
     logger.info(f"CSV export: {csv_path}")
 
-    # Resume generation for top jobs
-    if generate_resumes_flag and not skip_ai:
-        master_path = CONFIG_DIR / "master_resume.yml"
-        if master_path.exists():
-            resume_paths = generate_resumes(
-                jobs_for_output,
-                master_path=master_path,
-                output_dir=output_dir,
-                actions=("apply",),
-                max_resumes=15,
-            )
-            if resume_paths:
-                logger.info(f"Generated {len(resume_paths)} tailored resumes")
-        else:
-            logger.warning(f"Master resume not found at {master_path}, skipping resume generation")
-
     db.close()
     return filtered
-
-
-def import_feedback_cli(path_str: str):
-    """Standalone CLI command to import feedback and exit."""
-    setup_logging(verbose=False)
-    logger = logging.getLogger(__name__)
-    settings, _ = load_config()
-    db = JobDB(BASE_DIR / settings["output"]["db_path"])
-    init_eval_schema(db)
-
-    feedback_path = Path(path_str)
-    if not feedback_path.exists():
-        logger.error(f"Feedback file not found: {feedback_path}")
-        db.close()
-        return
-
-    count = import_feedback_file(db.conn, feedback_path, logger)
-    if count == 0:
-        logger.info("No feedback to import")
-    else:
-        logger.info(f"Done: {count} feedback entries imported")
-    db.close()
 
 
 def main():
@@ -612,22 +487,9 @@ def main():
     parser = argparse.ArgumentParser(description="Job scraper pipeline")
     parser.add_argument("--platform", help="Only scrape this platform")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
-    parser.add_argument("--skip-ai", action="store_true", help="Skip AI evaluation step")
-    parser.add_argument("--no-resumes", action="store_true",
-                        help="Skip tailored resume PDF generation")
-    parser.add_argument("--import-feedback", type=str, metavar="PATH",
-                        help="Import feedback JSON from dashboard and exit")
     args = parser.parse_args()
 
-    if args.import_feedback:
-        import_feedback_cli(args.import_feedback)
-    else:
-        asyncio.run(run(
-            platform_filter=args.platform,
-            verbose=args.verbose,
-            skip_ai=args.skip_ai,
-            generate_resumes_flag=not args.no_resumes,
-        ))
+    asyncio.run(run(platform_filter=args.platform, verbose=args.verbose))
 
 
 if __name__ == "__main__":

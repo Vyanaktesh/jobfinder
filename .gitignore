@@ -7,13 +7,13 @@ __pycache__/
 .venv/
 
 # Output (only latest.* is useful; timestamped files are ephemeral)
-output/dashboard_*.html
-output/digest_*.md
-output/jobs_*.csv
-output/autofill.js
-output/autofill_bookmarklet.txt
-output/apply_dashboard.html
-output/resumes/
+/output/dashboard_*.html
+/output/digest_*.md
+/output/jobs_*.csv
+/output/autofill.js
+/output/autofill_bookmarklet.txt
+/output/apply_dashboard.html
+/output/resumes/
 
 # Data
 data/jobs.db
@@ -40,4 +40,4 @@ data/jobs.db-shm
 data/jobs.db-wal
 
 # Generated output artifacts (dashboards, digests, resumes, autofill w/ PII)
-output/
+/output/

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Job Dashboard — {{ generated_at[:10] }}</title>
-{% if inline_css %}<style>{{ inline_css }}</style>{% else %}<link rel="stylesheet" href="../static/style.css">{% endif %}
+{% if inline_css %}<style>{{ inline_css|safe }}</style>{% else %}<link rel="stylesheet" href="../static/style.css">{% endif %}
 </head>
 <body>
 <div class="container">
@@ -13,8 +13,8 @@
     {% set intern_count = jobs|selectattr('is_internship')|list|length %}
     <p class="subtitle">Generated {{ generated_at[:16] }} &middot; {{ stats.total_passed }} jobs from {{ stats.total_companies }} companies &middot; {{ stats.total_new }} new this run &middot; {{ jobs|length - intern_count }} full-time &middot; {{ intern_count }} internship{{ 's' if intern_count != 1 else '' }}</p>
     <div class="action-toolbar">
-      <button id="runPipelineBtn" class="toolbar-btn run-btn" title="Trigger a fresh scrape + AI evaluation">&#9654; Run Pipeline</button>
-      <button id="cleanupBtn" class="toolbar-btn cleanup-btn" title="Delete tailored resumes for jobs you've marked applied">&#128465; Clean Applied Resumes</button>
+      <button id="runPipelineBtn" class="toolbar-btn run-btn" title="Trigger a fresh scrape">&#9654; Run Pipeline</button>
+      <button id="exportApplied" class="toolbar-btn" title="Download a CSV of jobs you've applied to">&#11015; Export Applied</button>
       <span id="controlStatus" class="control-status" title="Control-server connection. Start it with: python scripts/control_server.py">&#9679; checking&hellip;</span>
       <span id="runProgress" class="run-progress"></span>
     </div>
@@ -24,6 +24,8 @@
     <button class="type-tab active" data-type="">All Roles <span class="type-tab-count">{{ jobs|length }}</span></button>
     <button class="type-tab" data-type="fulltime">Full-Time <span class="type-tab-count">{{ jobs|length - intern_count }}</span></button>
     <button class="type-tab" data-type="internship">&#127891; Internships <span class="type-tab-count">{{ intern_count }}</span></button>
+    <button class="type-tab" data-type="saved">&#9733; Saved <span class="type-tab-count">0</span></button>
+    <button class="type-tab" data-type="applied">&#10003; Applied <span class="type-tab-count">0</span></button>
   </div>
 
   <div class="controls">
@@ -37,9 +39,9 @@
       </select>
       <select id="sponsorFilter">
         <option value="">All Sponsorship</option>
-        <option value="GREEN">🟢 GREEN (50+ H1Bs)</option>
-        <option value="YELLOW">🟡 YELLOW (1-49 H1Bs)</option>
-        <option value="RED">🔴 RED (No data)</option>
+        <option value="GREEN">🟢 GREEN (10+ H1Bs)</option>
+        <option value="YELLOW">🟡 YELLOW (1-9 H1Bs)</option>
+        <option value="RED">🔴 No H1B info (unknown)</option>
         <option value="NA">🎓 N/A (Internship — no H1B needed)</option>
       </select>
       <select id="platformFilter">
@@ -48,23 +50,20 @@
         <option value="{{ p }}">{{ p }}</option>
         {% endfor %}
       </select>
-      <select id="aiFilter">
-        <option value="">All AI Scores</option>
-        <option value="apply">🟢 Apply (3.0+)</option>
-        <option value="consider">🟡 Consider (2.0-2.9)</option>
-        <option value="skip">🔴 Skip (&lt;2.0)</option>
-        <option value="unevaluated">⬜ Not evaluated</option>
+      <select id="postedFilter">
+        <option value="">Any posted date</option>
+        <option value="1">Last 24 hours</option>
+        <option value="3">Last 3 days</option>
+        <option value="7">Last 7 days</option>
+        <option value="14">Last 14 days</option>
       </select>
+      <label class="toggle"><input type="checkbox" id="h1bOnly"> H1B-friendly only</label>
       <label class="toggle"><input type="checkbox" id="newOnly"> New only</label>
       <label class="toggle"><input type="checkbox" id="programOnly"> Programs only</label>
       <label class="toggle"><input type="checkbox" id="hideApplied"> Hide applied</label>
+      <button id="resetFilters" class="toolbar-btn" type="button">Reset filters</button>
     </div>
     <div class="status-bar" id="statusBar">Showing all {{ jobs|length }} jobs</div>
-    <div class="feedback-bar" id="feedbackBar">
-      <span id="feedbackCount">0 pending feedback</span>
-      <button id="exportFeedback" class="export-btn" disabled>Export Feedback JSON</button>
-      <button id="clearFeedback" class="clear-fb-btn" disabled>Clear All</button>
-    </div>
   </div>
 
   <table id="jobTable">
@@ -75,17 +74,15 @@
         <th data-sort="matched_lane" class="sortable">Lane</th>
         <th data-sort="location_parsed" class="sortable">Location</th>
         <th data-sort="posted_at" class="sortable">Posted</th>
-        <th data-sort="sponsorship_flag" class="sortable">H1B</th>
+        <th data-sort="sponsorship_flag" class="sortable sort-active">H1B</th>
         <th data-sort="match_score" class="sortable">Match</th>
-        <th data-sort="eval_global_score" class="sortable sort-active sort-desc">AI Score</th>
-        <th>Action</th>
         <th>Apply</th>
-        <th>Feedback</th>
+        <th title="Save for later">&#9733;</th>
       </tr>
     </thead>
     <tbody id="jobBody">
       {% for job in jobs %}
-      <tr class="job-row sp-{{ job.sponsorship_flag|lower }} {% if job.eval_action == 'apply' %}ai-apply{% elif job.eval_action == 'consider' %}ai-consider{% elif job.eval_action == 'skip' %}ai-skip{% endif %}"
+      <tr class="job-row sp-{{ job.sponsorship_flag|lower }}"
           data-company="{{ job.company_name|lower }}"
           data-title="{{ job.title|lower }}"
           data-lane="{{ job.matched_lane }}"
@@ -94,8 +91,7 @@
           data-sponsor="{{ job.sponsorship_flag }}"
           data-posted="{{ job.posted_at or '' }}"
           data-score="{{ job.match_score }}"
-          data-evalscore="{{ job.eval_global_score or 0 }}"
-          data-evalaction="{{ job.eval_action or '' }}"
+          data-h1b="{{ job.h1b_count or 0 }}"
           data-new="{{ job.is_new|int }}"
           data-rotational="{{ job.is_rotational|int }}"
           data-internship="{{ job.is_internship|int }}"
@@ -114,49 +110,21 @@
           {% if job.is_internship %}
           <span class="sponsor-dot sponsor-na" title="Internship — runs on CPT/OPT, no H1B sponsorship needed">&#127891; N/A</span>
           {% else %}
-          <span class="sponsor-dot sponsor-{{ job.sponsorship_flag|lower }}">{{ job.sponsorship_flag }}</span>
+          <span class="sponsor-dot sponsor-{{ job.sponsorship_flag|lower }}" title="{% if job.sponsorship_flag == 'RED' %}No H1B record for this company (may still sponsor){% else %}{{ job.h1b_count or 0 }} known H1B petitions{% endif %}">{{ "NO INFO" if job.sponsorship_flag == "RED" else job.sponsorship_flag }}{% if job.h1b_count %} · {{ job.h1b_count }}{% endif %}</span>
           {% endif %}
         </td>
         <td class="score-cell">{{ "%.0f"|format(job.match_score) }}</td>
-        <td class="ai-score-cell">
-          {% if job.eval_global_score %}
-          <span class="ai-score ai-{{ job.eval_action }}" title="{{ job.eval_reasoning or '' }}">
-            {{ "%.1f"|format(job.eval_global_score) }}
-          </span>
-          {% else %}
-          <span class="ai-score ai-pending">—</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if job.eval_action == 'apply' %}
-          <span class="action-badge action-apply">APPLY</span>
-          {% elif job.eval_action == 'consider' %}
-          <span class="action-badge action-consider">CONSIDER</span>
-          {% elif job.eval_action == 'skip' %}
-          <span class="action-badge action-skip">SKIP</span>
-          {% else %}
-          <span class="action-badge action-pending">—</span>
-          {% endif %}
-        </td>
-        <td class="apply-cell">
+        <td><div class="apply-cell">
           <a href="{{ job.apply_url }}" target="_blank" rel="noopener" class="apply-btn">Apply &rarr;</a>
-          {% if job.eval_action == 'apply' or job.eval_action == 'consider' %}
-          <button class="autofill-btn" title="Copy autofill script to clipboard">Autofill</button>
-          {% endif %}
-          {% if job.resume_file %}<span class="resume-tag" title="{{ job.resume_file }}">PDF</span>{% endif %}
-        </td>
-        <td class="feedback-cell">
-          <div class="feedback-btns" data-jobid="{{ job.id }}">
-            <button class="fb-btn fb-good" data-type="confirmed_good" title="Good pick">&#128077;</button>
-            <button class="fb-btn fb-regret-apply" data-type="regret_applied" title="Regret applying">&#128078;</button>
-            <button class="fb-btn fb-regret-skip" data-type="regret_skipped" title="Should have applied">&#128148;</button>
-          </div>
-          <span class="fb-status" data-jobid="{{ job.id }}"></span>
-        </td>
+          {% if autofill_js %}<button class="autofill-btn" title="Copy autofill script to clipboard">Autofill</button>{% endif %}
+          <button class="undo-btn" type="button" title="Mark as not applied" hidden>undo</button>
+        </div></td>
+        <td class="star-cell"><button class="star-btn" type="button" title="Save for later" aria-label="Save">&#9734;</button></td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  <div class="empty-state" id="emptyState">No jobs match these filters. <button class="toolbar-btn" type="button" id="emptyReset">Reset filters</button></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -165,6 +133,6 @@
 const JOBS = {{ jobs_json|safe }};
 const AUTOFILL_JS = {{ autofill_js|tojson }};
 </script>
-{% if inline_js %}<script>{{ inline_js }}</script>{% else %}<script src="../static/dashboard.js"></script>{% endif %}
+{% if inline_js %}<script>{{ inline_js|safe }}</script>{% else %}<script src="../static/dashboard.js"></script>{% endif %}
 </body>
 </html>
