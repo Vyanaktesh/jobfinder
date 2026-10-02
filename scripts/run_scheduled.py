@@ -45,15 +45,6 @@ def load_env():
                 os.environ[key.strip()] = val.strip()
 
 
-def move_feedback():
-    """Move feedback.json from ~/Downloads to output/ if present."""
-    downloads_fb = Path.home() / "Downloads" / "feedback.json"
-    output_fb = OUTPUT_DIR / "feedback.json"
-    if downloads_fb.exists():
-        print(f"Found feedback.json in Downloads, moving to output/")
-        downloads_fb.rename(output_fb)
-
-
 def get_new_count() -> str:
     """Get the new job count from the latest run log."""
     try:
@@ -82,7 +73,6 @@ def main():
 
         load_env()
         os.environ["JOBSCRAPER_HEADLESS"] = "1"
-        move_feedback()
 
         start = time.time()
         HARD_CAP = 5400  # 90 min of AWAKE time — full pipeline averages ~60 min

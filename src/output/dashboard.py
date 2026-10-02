@@ -10,7 +10,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 # Fields the dashboard JS needs; keeps the embedded JSON small (no descriptions).
 _JSON_FIELDS = (
     "id", "company_name", "title", "location_parsed", "matched_lane", "apply_url",
-    "sponsorship_flag", "h1b_count", "eval_global_score", "eval_action",
+    "sponsorship_flag", "h1b_count",
 )
 
 
@@ -23,7 +23,6 @@ def _prepare(job: dict) -> dict:
     job["is_new"] = bool(job.get("is_new") or _is_recent(job.get("first_seen_at")))
     job["is_rotational"] = bool(job.get("is_rotational"))
     job["is_internship"] = bool(job.get("is_internship"))
-    job["resume_file"] = job.get("resume_file")
     return job
 
 

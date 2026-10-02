@@ -9,7 +9,6 @@
   const laneFilter = document.getElementById('laneFilter');
   const sponsorFilter = document.getElementById('sponsorFilter');
   const platformFilter = document.getElementById('platformFilter');
-  const aiFilter = document.getElementById('aiFilter');
   const newOnly = document.getElementById('newOnly');
   const programOnly = document.getElementById('programOnly');
   const hideApplied = document.getElementById('hideApplied');
@@ -21,8 +20,8 @@
   const headers = document.querySelectorAll('th.sortable');
   const typeTabs = document.querySelectorAll('.type-tab');
 
-  let sortCol = 'eval_global_score';
-  let sortAsc = false;
+  let sortCol = 'sponsorship_flag';
+  let sortAsc = true;
   let typeFilter = ''; // '' = all, 'fulltime', 'internship', 'saved', 'applied'
 
   // --- Finding #20: Persist filter state across page reloads ---
@@ -34,7 +33,6 @@
       lane: laneFilter.value,
       sponsor: sponsorFilter.value,
       platform: platformFilter.value,
-      ai: aiFilter.value,
       newOnly: newOnly.checked,
       programOnly: programOnly.checked,
       hideApplied: hideApplied.checked,
@@ -55,7 +53,6 @@
       laneFilter.value = state.lane || '';
       sponsorFilter.value = state.sponsor || '';
       platformFilter.value = state.platform || '';
-      aiFilter.value = state.ai || '';
       newOnly.checked = !!state.newOnly;
       programOnly.checked = !!state.programOnly;
       hideApplied.checked = !!state.hideApplied;
@@ -78,7 +75,6 @@
     const lane = laneFilter.value;
     const sponsor = sponsorFilter.value;
     const platform = platformFilter.value;
-    const ai = aiFilter.value;
     const onlyNew = newOnly.checked;
     const onlyProgram = programOnly.checked;
     const noApplied = hideApplied.checked;
@@ -118,16 +114,6 @@
         if (!t || t < cutoff) visible = false;
       }
 
-      // AI score filter
-      if (ai) {
-        const action = row.dataset.evalaction || '';
-        if (ai === 'unevaluated') {
-          if (action !== '') visible = false;
-        } else {
-          if (action !== ai) visible = false;
-        }
-      }
-
       if (noApplied && isApplied(row, visited)) visible = false;
 
       row.classList.toggle('hidden', !visible);
@@ -149,7 +135,7 @@
       sortAsc = !sortAsc;
     } else {
       sortCol = col;
-      sortAsc = col === 'eval_global_score' || col === 'match_score' || col === 'posted_at' ? false : true;
+      sortAsc = !(col === 'match_score' || col === 'posted_at' || col === 'h1b_count');
     }
     applySort();
   }
@@ -174,13 +160,21 @@
         'posted_at': 'posted',
         'sponsorship_flag': 'sponsor',
         'match_score': 'score',
-        'eval_global_score': 'evalscore',
+        'h1b_count': 'h1b',
       };
       const key = keyMap[col] || col;
       let va = a.dataset[key] || '';
       let vb = b.dataset[key] || '';
 
-      if (col === 'match_score' || col === 'eval_global_score') {
+      if (col === 'sponsorship_flag') {
+        // GREEN, YELLOW, internship N/A, then RED; ties broken by H1B petition count (desc)
+        const rank = { GREEN: 0, YELLOW: 1, NA: 2, RED: 3 };
+        const d = (rank[va] ?? 3) - (rank[vb] ?? 3);
+        const byCount = (parseFloat(b.dataset.h1b) || 0) - (parseFloat(a.dataset.h1b) || 0);
+        return sortAsc ? (d || byCount) : -(d || byCount);
+      }
+
+      if (col === 'match_score') {
         va = parseFloat(va) || 0;
         vb = parseFloat(vb) || 0;
         return sortAsc ? va - vb : vb - va;
@@ -265,8 +259,9 @@
 
   function resetFilters() {
     search.value = ''; laneFilter.value = ''; sponsorFilter.value = ''; platformFilter.value = '';
-    aiFilter.value = ''; postedFilter.value = '';
-    newOnly.checked = programOnly.checked = hideApplied.checked = h1bOnly.checked = false;
+    postedFilter.value = '';
+    newOnly.checked = programOnly.checked = hideApplied.checked = false;
+    h1bOnly.checked = false;
     setActiveTab('');
     applyFilters();
   }
@@ -342,7 +337,6 @@
   laneFilter.addEventListener('change', applyFilters);
   sponsorFilter.addEventListener('change', applyFilters);
   platformFilter.addEventListener('change', applyFilters);
-  aiFilter.addEventListener('change', applyFilters);
   newOnly.addEventListener('change', applyFilters);
   programOnly.addEventListener('change', applyFilters);
   hideApplied.addEventListener('change', applyFilters);
@@ -361,106 +355,6 @@
       sortTable(h.dataset.sort);
     });
   });
-
-  // --- Feedback system ---
-  const FEEDBACK_KEY = 'jobscraper_feedback';
-
-  function getFeedback() {
-    return store.get(FEEDBACK_KEY, {});
-  }
-
-  function saveFeedback(fb) {
-    store.set(FEEDBACK_KEY, fb);
-    updateFeedbackBar();
-  }
-
-  function updateFeedbackBar() {
-    const fb = getFeedback();
-    const count = Object.keys(fb).length;
-    const countEl = document.getElementById('feedbackCount');
-    const exportBtn = document.getElementById('exportFeedback');
-    const clearBtn = document.getElementById('clearFeedback');
-
-    countEl.textContent = count === 0 ? '0 pending feedback' : `${count} pending feedback`;
-    countEl.classList.toggle('has-feedback', count > 0);
-    exportBtn.disabled = count === 0;
-    clearBtn.disabled = count === 0;
-  }
-
-  function restoreFeedbackUI() {
-    const fb = getFeedback();
-    Object.entries(fb).forEach(([jobId, entry]) => {
-      const btns = document.querySelector(`.feedback-btns[data-jobid="${jobId}"]`);
-      if (!btns) return;
-      const btn = btns.querySelector(`[data-type="${entry.type}"]`);
-      if (btn) btn.classList.add('fb-active');
-      const status = document.querySelector(`.fb-status[data-jobid="${jobId}"]`);
-      if (status) {
-        const labels = { confirmed_good: 'Good', regret_applied: 'Regret', regret_skipped: 'Missed' };
-        status.textContent = labels[entry.type] || '';
-      }
-    });
-    updateFeedbackBar();
-  }
-
-  // Handle feedback button clicks
-  document.addEventListener('click', e => {
-    const btn = e.target.closest('.fb-btn');
-    if (!btn) return;
-
-    const container = btn.closest('.feedback-btns');
-    const jobId = container.dataset.jobid;
-    const type = btn.dataset.type;
-    const fb = getFeedback();
-
-    // Toggle: clicking same button again removes feedback
-    if (fb[jobId] && fb[jobId].type === type) {
-      delete fb[jobId];
-      container.querySelectorAll('.fb-btn').forEach(b => b.classList.remove('fb-active'));
-      const status = document.querySelector(`.fb-status[data-jobid="${jobId}"]`);
-      if (status) status.textContent = '';
-    } else {
-      fb[jobId] = { type, timestamp: new Date().toISOString() };
-      container.querySelectorAll('.fb-btn').forEach(b => b.classList.remove('fb-active'));
-      btn.classList.add('fb-active');
-      const labels = { confirmed_good: 'Good', regret_applied: 'Regret', regret_skipped: 'Missed' };
-      const status = document.querySelector(`.fb-status[data-jobid="${jobId}"]`);
-      if (status) status.textContent = labels[type] || '';
-    }
-
-    saveFeedback(fb);
-  });
-
-  // Export feedback as JSON download
-  document.getElementById('exportFeedback').addEventListener('click', () => {
-    const fb = getFeedback();
-    if (Object.keys(fb).length === 0) return;
-
-    const exportData = Object.entries(fb).map(([jobId, entry]) => ({
-      job_id: parseInt(jobId, 10),
-      feedback_type: entry.type,
-      timestamp: entry.timestamp,
-    }));
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'feedback.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  });
-
-  // Clear all feedback
-  document.getElementById('clearFeedback').addEventListener('click', () => {
-    if (!confirm('Clear all pending feedback?')) return;
-    store.del(FEEDBACK_KEY);
-    document.querySelectorAll('.fb-btn').forEach(b => b.classList.remove('fb-active'));
-    document.querySelectorAll('.fb-status').forEach(s => s.textContent = '');
-    updateFeedbackBar();
-  });
-
-  restoreFeedbackUI();
 
   // --- Autofill copy-to-clipboard ---
   function showToast(msg, duration) {
@@ -491,7 +385,6 @@
   // when the server isn't running.
   const CONTROL_BASE = (store.get('jobscraper_control_base', 'http://localhost:8765')).replace(/\/$/, '');
   const runBtn = document.getElementById('runPipelineBtn');
-  const cleanupBtn = document.getElementById('cleanupBtn');
   const controlStatus = document.getElementById('controlStatus');
   const runProgress = document.getElementById('runProgress');
   let serverUp = false;
@@ -504,8 +397,6 @@
     if (m) return m[1].charAt(0).toUpperCase() + m[1].slice(1) + ' ' + m[2];
     m = p.match(/\[(\w+)\]\s*Done:/i);
     if (m) return m[1].charAt(0).toUpperCase() + m[1].slice(1) + ' done';
-    if (/AI evaluating/i.test(p)) return 'AI evaluating…';
-    if (/AI evaluation complete/i.test(p)) return 'AI eval done';
     if (/Passed filters/i.test(p)) return 'Filtering…';
     if (/Dashboard:/i.test(p)) return 'Writing dashboard…';
     if (/Scraping (\w+)/i.test(p)) return 'Scraping ' + RegExp.$1;
@@ -525,7 +416,6 @@
       controlStatus.title = 'Start it: python scripts/control_server.py';
     }
     if (runBtn) runBtn.disabled = !up;
-    if (cleanupBtn) cleanupBtn.disabled = !up;
   }
 
   async function pingControl() {
@@ -535,7 +425,7 @@
       const s = await r.json();
       let detail = s.running ? 'Pipeline RUNNING' : 'Idle';
       if (s.progress) detail += ' — ' + s.progress;
-      if (s.apply_count != null) detail += ` (${s.apply_count} apply)`;
+      if (s.apply_count != null) detail += ` (${s.apply_count} H1B-friendly jobs)`;
       setControlStatus(true, detail);
       if (runBtn) {
         runBtn.textContent = s.running ? '⏳ Running…' : '▶ Run Pipeline';
@@ -557,19 +447,6 @@
     }
   }
 
-  // Collect job IDs of rows the user has marked applied (visited apply link)
-  function appliedJobIds() {
-    const visited = getVisited();
-    const ids = [];
-    document.querySelectorAll('tr.job-row').forEach(row => {
-      const link = row.querySelector('a.apply-btn');
-      if (link && visited[link.href] && row.dataset.jobid) {
-        ids.push(parseInt(row.dataset.jobid, 10));
-      }
-    });
-    return ids;
-  }
-
   if (runBtn) {
     runBtn.addEventListener('click', async () => {
       if (!serverUp) { showToast('Control server offline. Run: python scripts/control_server.py', 4000); return; }
@@ -582,29 +459,6 @@
         showToast('Failed to reach control server.', 3000);
       }
       setTimeout(pingControl, 1500);
-    });
-  }
-
-  if (cleanupBtn) {
-    cleanupBtn.addEventListener('click', async () => {
-      if (!serverUp) { showToast('Control server offline. Run: python scripts/control_server.py', 4000); return; }
-      const ids = appliedJobIds();
-      if (ids.length === 0) {
-        showToast('No applied jobs yet. Click an Apply link first to mark it applied.', 4000);
-        return;
-      }
-      if (!confirm(`Delete tailored resumes for ${ids.length} applied job(s)?`)) return;
-      try {
-        const r = await fetch(CONTROL_BASE + '/cleanup', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ job_ids: ids }),
-        });
-        const d = await r.json();
-        showToast(d.ok ? `Deleted ${d.deleted} resume PDF(s).` : (d.message || 'Cleanup failed'), 4000);
-      } catch {
-        showToast('Failed to reach control server.', 3000);
-      }
     });
   }
 

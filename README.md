@@ -1,6 +1,6 @@
 # Job Scraper
 
-Automated job search pipeline that scrapes public ATS APIs, filters for relevant roles, enriches with H1B sponsorship data, and outputs a sortable HTML dashboard + markdown digest.
+Job search pipeline that scrapes public ATS APIs, filters for relevant roles, flags H1B sponsors, and outputs a sortable HTML dashboard + markdown digest. No AI/LLM calls and no API keys needed.
 
 ## What it does
 
@@ -20,12 +20,7 @@ uv pip install -r requirements.txt
 
 # Create your personal config from the templates (these are gitignored)
 cp config/applicant_profile.example.yml config/applicant_profile.yml
-cp config/profile.example.yml           config/profile.yml
-cp config/master_resume.example.yml     config/master_resume.yml
 # ...then edit each with your own details.
-
-# Add your Anthropic API key (used for AI evaluation + resume tailoring)
-echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 
 # Import H1B employer data (curated list + config/h1b_employers.txt, ~370 companies)
 python scripts/import_h1b.py
@@ -36,26 +31,21 @@ python -m src.main
 # Run with options
 python -m src.main --verbose                # Debug logging
 python -m src.main --platform greenhouse    # Single platform only
-python -m src.main --no-resumes             # Skip tailored resume PDFs
 ```
 
 Open `output/latest.html` in a browser to view the dashboard.
 
 ## Dashboard control server (optional)
 
-The dashboard is a static file, so its **Run Pipeline** and **Clean Applied
-Resumes** buttons need a tiny local helper to act. Start it and leave it
+The dashboard is a static file, so its **Run Pipeline** button needs a tiny local helper to act. Start it and leave it
 running:
 
 ```bash
 python scripts/control_server.py    # listens on http://localhost:8765
 ```
 
-- **▶ Run Pipeline** — triggers a fresh scrape + AI evaluation (via the
+- **▶ Run Pipeline** — triggers a fresh scrape (via the
   `com.devansh.jobscraper` launchd job, so it survives terminal exit).
-- **🗑 Clean Applied Resumes** — deletes the tailored resume PDFs for any job
-  you've marked applied (clicked its Apply link), keeping `output/resumes/`
-  small. Also available standalone: `python -m src.resume.cleanup <job_id> ...`
 
 The buttons show a connection indicator and degrade gracefully when the server
 isn't running.
@@ -136,6 +126,10 @@ python scripts/import_h1b.py --file path/to/uscis_data.csv
 python scripts/import_h1b.py --file path/to/h1b_disclosure.xlsx
 ```
 
+Jobs from companies with no H1B record are kept (flagged RED) by default. Optionally set `only_sponsors = true`
+under `[h1b]` in `config/settings.toml` to drop them at scrape time. Run `python scripts/h1b_coverage.py` to see which
+sponsors still have no job board configured.
+
 ### Adding more H1B sponsors (e.g. a Google Sheet list)
 
 ```bash
@@ -153,7 +147,7 @@ You can also just append names to `config/h1b_employers.txt`.
 The HTML dashboard (`output/latest.html`) features:
 - Dark theme with sponsorship color-coded borders (green/yellow/red)
 - Text search across all fields
-- Dropdown filters: role lane, sponsorship flag, ATS platform
+- Dropdown filters: role lane, sponsorship flag, ATS platform (sorted H1B sponsors first, but jobs from companies with no H1B record are still shown; tick "H1B-friendly only" to hide them)
 - Toggle: NEW jobs only, Rotational Programs only
 - Sortable columns: company, title, lane, location, score, posted date
 - Direct apply links

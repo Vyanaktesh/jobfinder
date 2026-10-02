@@ -6,7 +6,6 @@ buttons call (with CORS so file:// pages can reach it):
 
     GET  /status            -> {running, progress, apply_count}
     POST /run               -> trigger a full pipeline run (via launchd)
-    POST /cleanup           -> body {"job_ids":[...]} delete those resumes
     GET  /                  -> redirect to the latest dashboard (convenience)
 
 Run it:
@@ -28,7 +27,6 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
-from src.resume.cleanup import cleanup_by_job_ids  # noqa: E402
 
 PORT = int(os.getenv("JOBSCRAPER_CONTROL_PORT", "8765"))
 LAUNCHD_LABEL = "com.devansh.jobscraper"
@@ -61,7 +59,7 @@ def _last_progress() -> str:
             f.seek(max(0, size - 500000))  # large window: logs are DEBUG-heavy
             tail = f.read().decode("utf-8", "replace").splitlines()
         wanted = re.compile(r"(Scraping |Progress:|Done:|Total raw|Passed filters|"
-                            r"AI evaluating|AI evaluation complete|Dashboard:)")
+                            r"Dashboard:)")
         hits = [ln for ln in tail if wanted.search(ln)]
         return hits[-1].split("| __main__ |")[-1].strip() if hits else ""
     except Exception:
@@ -69,13 +67,12 @@ def _last_progress() -> str:
 
 
 def _apply_count() -> int | None:
-    """Count current apply-tier jobs in the DB (best-effort)."""
+    """Count active H1B-friendly (GREEN/YELLOW) jobs in the DB (best-effort)."""
     try:
         import sqlite3
-        db = PROJECT_DIR / "data" / "jobs.db"
-        conn = sqlite3.connect(str(db))
+        conn = sqlite3.connect(str(PROJECT_DIR / "data" / "jobs.db"))
         row = conn.execute(
-            "SELECT COUNT(*) FROM job_evaluations WHERE recommended_action='apply'"
+            "SELECT COUNT(*) FROM jobs WHERE is_active=1 AND sponsorship_flag IN ('GREEN','YELLOW')"
         ).fetchone()
         conn.close()
         return row[0] if row else 0
@@ -135,13 +132,6 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/run"):
             ok, msg = _trigger_run()
             self._send(200 if ok else 409, {"ok": ok, "message": msg})
-        elif self.path.startswith("/cleanup"):
-            job_ids = data.get("job_ids", [])
-            if not isinstance(job_ids, list) or not job_ids:
-                self._send(400, {"ok": False, "message": "job_ids required"})
-                return
-            result = cleanup_by_job_ids(job_ids, OUTPUT_DIR)
-            self._send(200, {"ok": True, **result})
         else:
             self._send(404, {"error": "not found"})
 
@@ -152,7 +142,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"Job-scraper control server listening on http://localhost:{PORT}")
-    print("  GET  /status   POST /run   POST /cleanup")
+    print("  GET  /status   POST /run")
     print("Leave this running; use the dashboard buttons. Ctrl+C to stop.")
     try:
         server.serve_forever()

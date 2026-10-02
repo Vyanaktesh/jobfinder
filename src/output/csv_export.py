@@ -7,8 +7,7 @@ from pathlib import Path
 
 COLUMNS = [
     "company_name", "title", "location_parsed", "matched_lane", "posted_at",
-    "sponsorship_flag", "h1b_count", "match_score", "eval_global_score",
-    "eval_action", "apply_url",
+    "sponsorship_flag", "h1b_count", "match_score", "apply_url",
 ]
 
 
