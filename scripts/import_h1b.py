@@ -16,7 +16,15 @@ Usage:
      python scripts/import_h1b.py --file path/to/downloaded_file.xlsx
 
 The script auto-detects the file format and column names.
-If no file is provided, it loads the built-in curated employer list.
+If no file is provided, it loads the built-in curated employer list plus
+config/h1b_employers.txt (your editable sponsor list).
+
+Merge more sponsors without wiping what's there:
+  python scripts/import_h1b.py --list my_companies.txt        # one name per line
+  python scripts/import_h1b.py --url "https://docs.google.com/spreadsheets/d/<ID>/edit#gid=0"
+    (Google Sheet must be shared "anyone with the link"; first column or a
+     column named Employer/Company/Name is used; optional count column)
+Both MERGE into the existing table (use --replace to start from scratch).
 """
 
 import argparse
@@ -93,6 +101,92 @@ def load_curated_employers() -> list[tuple[str, str, int]]:
     return [(name, normalize_employer(name), count) for name, count in employers]
 
 
+DEFAULT_LIST = PROJECT_ROOT / "config" / "h1b_employers.txt"
+DEFAULT_COUNT = 10  # name-only entries count as established sponsors (GREEN)
+
+
+def parse_name_list(text: str) -> list[tuple[str, str, int]]:
+    """Parse 'Name' or 'Name,count' lines; '#' starts a comment."""
+    out = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        name, count = line, DEFAULT_COUNT
+        m = re.match(r"^(.*),\s*(\d+)$", line)
+        if m:
+            name, count = m.group(1).strip(), int(m.group(2))
+        norm = normalize_employer(name)
+        if norm:
+            out.append((name, norm, count))
+    return out
+
+
+def google_sheet_csv_url(url: str) -> str:
+    """Turn a normal Google Sheets link into its CSV export link."""
+    m = re.search(r"/spreadsheets/d/([\w-]+)", url)
+    if not m:
+        return url
+    gid = re.search(r"gid=(\d+)", url)
+    return (f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv"
+            + (f"&gid={gid.group(1)}" if gid else ""))
+
+
+def parse_csv_text(text: str) -> list[tuple[str, str, int]]:
+    import csv, io
+    rows = list(csv.reader(io.StringIO(text)))
+    if not rows:
+        return []
+    header = [c.strip().lower() for c in rows[0]]
+    name_i, count_i, start = 0, None, 0
+    for cand in ("employer", "employer_name", "company", "company name", "name", "petitioner name"):
+        if cand in header:
+            name_i, start = header.index(cand), 1
+            break
+    for cand in ("count", "petitions", "approvals", "total", "worker_count", "h1b count"):
+        if cand in header:
+            count_i = header.index(cand)
+            break
+    out = []
+    for r in rows[start:]:
+        if len(r) <= name_i or not r[name_i].strip():
+            continue
+        name = r[name_i].strip()
+        count = DEFAULT_COUNT
+        if count_i is not None and len(r) > count_i:
+            digits = re.sub(r"[^\d]", "", r[count_i])
+            if digits:
+                count = max(int(digits), 1)
+        out.append((name, normalize_employer(name), count))
+    return [o for o in out if o[1]]
+
+
+def merge_employers(db_path: Path, employers: list[tuple[str, str, int]], replace: bool = False):
+    """Insert employers, skipping names already present (keeps the higher count)."""
+    conn = sqlite3.connect(str(db_path))
+    if replace:
+        conn.execute("DELETE FROM h1b_employers")
+    existing = dict(conn.execute(
+        "SELECT employer_name_normalized, MAX(worker_count) FROM h1b_employers GROUP BY 1").fetchall())
+    added = updated = 0
+    for name, norm, count in employers:
+        if norm in existing:
+            if count > (existing[norm] or 0):
+                conn.execute("UPDATE h1b_employers SET worker_count=? WHERE employer_name_normalized=?", (count, norm))
+                existing[norm] = count
+                updated += 1
+            continue
+        conn.execute(
+            "INSERT INTO h1b_employers (employer_name, employer_name_normalized, case_status, fiscal_year, worker_count) "
+            "VALUES (?, ?, 'Certified', 2025, ?)", (name, norm, count))
+        existing[norm] = count
+        added += 1
+    conn.commit()
+    total = conn.execute("SELECT COUNT(DISTINCT employer_name_normalized) FROM h1b_employers").fetchone()[0]
+    conn.close()
+    print(f"Added {added} new, raised {updated} counts. {total} employers total in {db_path}")
+
+
 def import_curated(db_path: Path):
     conn = sqlite3.connect(str(db_path))
     conn.execute("DELETE FROM h1b_employers")
@@ -105,6 +199,8 @@ def import_curated(db_path: Path):
     conn.commit()
     print(f"Imported {len(employers)} curated employers into {db_path}")
     conn.close()
+    if DEFAULT_LIST.exists():
+        merge_employers(db_path, parse_name_list(DEFAULT_LIST.read_text()))
 
 
 def import_csv(filepath: Path, db_path: Path):
@@ -178,6 +274,9 @@ def import_csv(filepath: Path, db_path: Path):
 def main():
     parser = argparse.ArgumentParser(description="Import H1B employer data")
     parser.add_argument("--file", type=Path, help="Path to USCIS CSV or DOL Excel file")
+    parser.add_argument("--list", type=Path, help="Text file, one employer per line (optionally 'Name,count')")
+    parser.add_argument("--url", help="Google Sheet / CSV URL of H1B employers (merged)")
+    parser.add_argument("--replace", action="store_true", help="Wipe existing employers before importing")
     parser.add_argument("--db", type=Path, default=PROJECT_ROOT / "data" / "jobs.db")
     args = parser.parse_args()
 
@@ -186,7 +285,16 @@ def main():
     db = JobDB(args.db)
     db.close()
 
-    if args.file:
+    if args.url:
+        import httpx
+        r = httpx.get(google_sheet_csv_url(args.url), follow_redirects=True, timeout=60)
+        r.raise_for_status()
+        if "text/html" in r.headers.get("content-type", ""):
+            sys.exit("Got an HTML page, not CSV — share the sheet as 'anyone with the link can view'.")
+        merge_employers(args.db, parse_csv_text(r.text), replace=args.replace)
+    elif args.list:
+        merge_employers(args.db, parse_name_list(args.list.read_text()), replace=args.replace)
+    elif args.file:
         import_csv(args.file, args.db)
     else:
         print("No file provided — loading curated employer list...")

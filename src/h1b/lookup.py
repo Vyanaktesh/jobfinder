@@ -6,7 +6,7 @@ import sqlite3
 from functools import lru_cache
 from pathlib import Path
 
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, process
 
 logger = logging.getLogger(__name__)
 
@@ -74,14 +74,15 @@ class H1BLookup:
             count = self._employers[normalized]
             return self._flag(count), count
 
-        # Fuzzy match (O(n) scan — cached result avoids repeats)
+        # Fuzzy match — rapidfuzz's C-level extractOne scales to 100k+ employers
         best_score = 0
         best_count = 0
-        for emp_name, count in self._employer_list:
-            score = fuzz.token_set_ratio(normalized, emp_name)
-            if score > best_score:
-                best_score = score
-                best_count = count
+        match = process.extractOne(
+            normalized, self._employers.keys(), scorer=fuzz.token_set_ratio, score_cutoff=85
+        )
+        if match:
+            best_score = match[1]
+            best_count = self._employers[match[0]]
 
         if best_score >= 85:
             return self._flag(best_count), best_count

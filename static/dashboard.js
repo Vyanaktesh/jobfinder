@@ -1,4 +1,10 @@
 (() => {
+  // localStorage can throw (file:// in some browsers, private mode). Never let that break the UI.
+  const store = {
+    get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
+  };
   const search = document.getElementById('searchBox');
   const laneFilter = document.getElementById('laneFilter');
   const sponsorFilter = document.getElementById('sponsorFilter');
@@ -7,6 +13,9 @@
   const newOnly = document.getElementById('newOnly');
   const programOnly = document.getElementById('programOnly');
   const hideApplied = document.getElementById('hideApplied');
+  const postedFilter = document.getElementById('postedFilter');
+  const h1bOnly = document.getElementById('h1bOnly');
+  const emptyState = document.getElementById('emptyState');
   const statusBar = document.getElementById('statusBar');
   const tbody = document.getElementById('jobBody');
   const headers = document.querySelectorAll('th.sortable');
@@ -14,7 +23,7 @@
 
   let sortCol = 'eval_global_score';
   let sortAsc = false;
-  let typeFilter = ''; // '' = all, 'fulltime', 'internship'
+  let typeFilter = ''; // '' = all, 'fulltime', 'internship', 'saved', 'applied'
 
   // --- Finding #20: Persist filter state across page reloads ---
   const FILTERS_KEY = 'jobscraper_filters';
@@ -29,16 +38,18 @@
       newOnly: newOnly.checked,
       programOnly: programOnly.checked,
       hideApplied: hideApplied.checked,
+      posted: postedFilter.value,
+      h1bOnly: h1bOnly.checked,
       typeFilter,
       sortCol,
       sortAsc,
     };
-    try { localStorage.setItem(FILTERS_KEY, JSON.stringify(state)); } catch {}
+    store.set(FILTERS_KEY, state);
   }
 
   function restoreFilterState() {
     try {
-      const state = JSON.parse(localStorage.getItem(FILTERS_KEY));
+      const state = store.get(FILTERS_KEY, null);
       if (!state) return;
       search.value = state.search || '';
       laneFilter.value = state.lane || '';
@@ -48,9 +59,11 @@
       newOnly.checked = !!state.newOnly;
       programOnly.checked = !!state.programOnly;
       hideApplied.checked = !!state.hideApplied;
+      postedFilter.value = state.posted || '';
+      h1bOnly.checked = !!state.h1bOnly;
       typeFilter = state.typeFilter || '';
       setActiveTab(typeFilter);
-      if (state.sortCol) sortCol = state.sortCol;
+      if (state.sortCol && document.querySelector(`th.sortable[data-sort="${state.sortCol}"]`)) sortCol = state.sortCol;
       if (state.sortAsc !== undefined) sortAsc = state.sortAsc;
     } catch {}
   }
@@ -69,7 +82,11 @@
     const onlyNew = newOnly.checked;
     const onlyProgram = programOnly.checked;
     const noApplied = hideApplied.checked;
+    const maxAge = parseInt(postedFilter.value, 10) || 0;
+    const onlyH1b = h1bOnly.checked;
     const visited = getVisited();
+    const saved = getSaved();
+    const cutoff = maxAge ? Date.now() - maxAge * 86400000 : 0;
 
     let shown = 0;
     const rows = tbody.querySelectorAll('tr.job-row');
@@ -92,6 +109,14 @@
       // they're never silently mixed into (or hidden from) full-time results.
       if (typeFilter === 'internship' && row.dataset.internship !== '1') visible = false;
       if (typeFilter === 'fulltime' && row.dataset.internship === '1') visible = false;
+      if (typeFilter === 'saved' && !saved[row.dataset.jobid]) visible = false;
+      if (typeFilter === 'applied' && !isApplied(row, visited)) visible = false;
+
+      if (onlyH1b && !(row.dataset.sponsor === 'GREEN' || row.dataset.sponsor === 'YELLOW' || row.dataset.sponsor === 'NA')) visible = false;
+      if (cutoff) {
+        const t = Date.parse(row.dataset.posted);
+        if (!t || t < cutoff) visible = false;
+      }
 
       // AI score filter
       if (ai) {
@@ -103,27 +128,34 @@
         }
       }
 
-      if (noApplied) {
-        const link = row.querySelector('a.apply-btn');
-        if (link && visited[link.href]) visible = false;
-      }
+      if (noApplied && isApplied(row, visited)) visible = false;
 
       row.classList.toggle('hidden', !visible);
       if (visible) shown++;
     });
 
     const label = typeFilter === 'internship' ? 'internships' : typeFilter === 'fulltime' ? 'full-time jobs' : 'jobs';
-    statusBar.textContent = `Showing ${shown} of ${rows.length} ${label}`;
+    const appliedN = Array.from(rows).filter(r => isApplied(r, visited)).length;
+    statusBar.textContent = `Showing ${shown} of ${rows.length} ${label} · ${appliedN} applied`;
+    if (emptyState) emptyState.classList.toggle('show', shown === 0);
+    updateTabCounts(rows, visited, saved);
     saveFilterState();
   }
 
+  // Header click: toggle direction (or switch column). Restore/initial render
+  // calls applySort() directly so reloading never flips the saved direction.
   function sortTable(col) {
     if (sortCol === col) {
       sortAsc = !sortAsc;
     } else {
       sortCol = col;
-      sortAsc = true;
+      sortAsc = col === 'eval_global_score' || col === 'match_score' || col === 'posted_at' ? false : true;
     }
+    applySort();
+  }
+
+  function applySort() {
+    const col = sortCol;
 
     headers.forEach(h => {
       h.classList.remove('sort-active', 'sort-desc');
@@ -170,40 +202,139 @@
   // --- Visited link tracking via localStorage ---
   const VISITED_KEY = 'jobscraper_visited';
 
-  function getVisited() {
-    try { return JSON.parse(localStorage.getItem(VISITED_KEY)) || {}; } catch { return {}; }
-  }
+  function getVisited() { return store.get(VISITED_KEY, {}); }
 
   function markVisited(url) {
     const v = getVisited();
     v[url] = Date.now();
-    localStorage.setItem(VISITED_KEY, JSON.stringify(v));
+    store.set(VISITED_KEY, v);
+  }
+
+  function unmarkVisited(url) {
+    const v = getVisited();
+    delete v[url];
+    store.set(VISITED_KEY, v);
+  }
+
+  function isApplied(row, visited) {
+    const link = row.querySelector('a.apply-btn');
+    return !!(link && (visited || getVisited())[link.href]);
+  }
+
+  function setRowApplied(row, applied) {
+    const a = row.querySelector('a.apply-btn');
+    if (!a) return;
+    a.classList.toggle('visited', applied);
+    a.textContent = applied ? 'Applied ✓' : 'Apply →';
+    row.classList.toggle('visited-row', applied);
+    const undo = row.querySelector('.undo-btn');
+    if (undo) undo.hidden = !applied;
   }
 
   function applyVisitedStyles() {
     const v = getVisited();
-    document.querySelectorAll('a.apply-btn').forEach(a => {
-      if (v[a.href]) {
-        a.classList.add('visited');
-        a.textContent = 'Applied ✓';
-        a.closest('tr.job-row')?.classList.add('visited-row');
-      }
+    document.querySelectorAll('tr.job-row').forEach(row => setRowApplied(row, isApplied(row, v)));
+  }
+
+  // --- Saved (starred) jobs ---
+  const SAVED_KEY = 'jobscraper_saved';
+  function getSaved() { return store.get(SAVED_KEY, {}); }
+
+  function applySavedStyles() {
+    const sv = getSaved();
+    document.querySelectorAll('tr.job-row').forEach(row => {
+      const on = !!sv[row.dataset.jobid];
+      const b = row.querySelector('.star-btn');
+      if (b) { b.classList.toggle('on', on); b.textContent = on ? '\u2605' : '\u2606'; }
     });
   }
 
-  // Mark link as visited on click
+  function updateTabCounts(rows, visited, saved) {
+    let intern = 0, applied = 0, savedN = 0;
+    rows.forEach(r => {
+      if (r.dataset.internship === '1') intern++;
+      if (isApplied(r, visited)) applied++;
+      if (saved[r.dataset.jobid]) savedN++;
+    });
+    const counts = { '': rows.length, fulltime: rows.length - intern, internship: intern, saved: savedN, applied };
+    typeTabs.forEach(t => {
+      const el = t.querySelector('.type-tab-count');
+      if (el && counts[t.dataset.type] !== undefined) el.textContent = counts[t.dataset.type];
+    });
+  }
+
+  function resetFilters() {
+    search.value = ''; laneFilter.value = ''; sponsorFilter.value = ''; platformFilter.value = '';
+    aiFilter.value = ''; postedFilter.value = '';
+    newOnly.checked = programOnly.checked = hideApplied.checked = h1bOnly.checked = false;
+    setActiveTab('');
+    applyFilters();
+  }
+
+  document.addEventListener('click', e => {
+    const star = e.target.closest('.star-btn');
+    if (star) {
+      const id = star.closest('tr.job-row').dataset.jobid;
+      const sv = getSaved();
+      if (sv[id]) delete sv[id]; else sv[id] = Date.now();
+      store.set(SAVED_KEY, sv);
+      applySavedStyles();
+      applyFilters();
+      return;
+    }
+    const undo = e.target.closest('.undo-btn');
+    if (undo) {
+      const row = undo.closest('tr.job-row');
+      unmarkVisited(row.querySelector('a.apply-btn').href);
+      setRowApplied(row, false);
+      applyFilters();
+    }
+  });
+
+  document.getElementById('resetFilters')?.addEventListener('click', resetFilters);
+  document.getElementById('emptyReset')?.addEventListener('click', resetFilters);
+
+  // "/" focuses search (like GitHub/Gmail)
+  document.addEventListener('keydown', e => {
+    if (e.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) {
+      e.preventDefault();
+      search.focus();
+    }
+  });
+
+  document.getElementById('exportApplied')?.addEventListener('click', () => {
+    const v = getVisited();
+    const rows = Array.from(document.querySelectorAll('tr.job-row')).filter(r => isApplied(r, v));
+    if (!rows.length) { showToast('Nothing applied yet.', 3000); return; }
+    const q = x => '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"';
+    const byId = Object.fromEntries(JOBS.map(j => [String(j.id), j]));
+    const lines = ['company,title,location,h1b,applied_on,url'];
+    rows.forEach(r => {
+      const j = byId[r.dataset.jobid] || {};
+      const url = r.querySelector('a.apply-btn').href;
+      lines.push([j.company_name, j.title, j.location_parsed, j.sponsorship_flag,
+        new Date(v[url]).toISOString().slice(0, 10), url].map(q).join(','));
+    });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+    a.download = 'applied_jobs.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  // Mark link as applied on click
   document.addEventListener('click', e => {
     const btn = e.target.closest('a.apply-btn');
     if (btn) {
       markVisited(btn.href);
-      btn.classList.add('visited');
-      btn.textContent = 'Applied ✓';
-      btn.closest('tr.job-row')?.classList.add('visited-row');
+      setRowApplied(btn.closest('tr.job-row'), true);
+      setTimeout(applyFilters, 0);
     }
   });
 
   // Apply on page load
   applyVisitedStyles();
+  applySavedStyles();
   restoreFilterState();
 
   // Event listeners
@@ -215,6 +346,8 @@
   newOnly.addEventListener('change', applyFilters);
   programOnly.addEventListener('change', applyFilters);
   hideApplied.addEventListener('change', applyFilters);
+  postedFilter.addEventListener('change', applyFilters);
+  h1bOnly.addEventListener('change', applyFilters);
 
   typeTabs.forEach(tab => {
     tab.addEventListener('click', () => {
@@ -233,11 +366,11 @@
   const FEEDBACK_KEY = 'jobscraper_feedback';
 
   function getFeedback() {
-    try { return JSON.parse(localStorage.getItem(FEEDBACK_KEY)) || {}; } catch { return {}; }
+    return store.get(FEEDBACK_KEY, {});
   }
 
   function saveFeedback(fb) {
-    localStorage.setItem(FEEDBACK_KEY, JSON.stringify(fb));
+    store.set(FEEDBACK_KEY, fb);
     updateFeedbackBar();
   }
 
@@ -321,7 +454,7 @@
   // Clear all feedback
   document.getElementById('clearFeedback').addEventListener('click', () => {
     if (!confirm('Clear all pending feedback?')) return;
-    localStorage.removeItem(FEEDBACK_KEY);
+    store.del(FEEDBACK_KEY);
     document.querySelectorAll('.fb-btn').forEach(b => b.classList.remove('fb-active'));
     document.querySelectorAll('.fb-status').forEach(s => s.textContent = '');
     updateFeedbackBar();
@@ -356,8 +489,7 @@
   // A file:// dashboard can't spawn processes; these buttons call a small local
   // server (scripts/control_server.py) over CORS. Buttons degrade gracefully
   // when the server isn't running.
-  const CONTROL_BASE = (localStorage.getItem('jobscraper_control_base')
-    || 'http://localhost:8765').replace(/\/$/, '');
+  const CONTROL_BASE = (store.get('jobscraper_control_base', 'http://localhost:8765')).replace(/\/$/, '');
   const runBtn = document.getElementById('runPipelineBtn');
   const cleanupBtn = document.getElementById('cleanupBtn');
   const controlStatus = document.getElementById('controlStatus');
@@ -481,6 +613,10 @@
   setInterval(pingControl, 10000);
 
   // Initial sort + filter (uses restored state or defaults)
-  sortTable(sortCol);
+  document.querySelectorAll('th.sortable').forEach(h => {
+    h.classList.remove('sort-active', 'sort-desc');
+    if (h.dataset.sort === sortCol) { h.classList.add('sort-active'); if (!sortAsc) h.classList.add('sort-desc'); }
+  });
+  applySort();
   applyFilters();
 })();

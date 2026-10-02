@@ -27,7 +27,7 @@ cp config/master_resume.example.yml     config/master_resume.yml
 # Add your Anthropic API key (used for AI evaluation + resume tailoring)
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 
-# Import H1B employer data (curated list, ~105 companies)
+# Import H1B employer data (curated list + config/h1b_employers.txt, ~370 companies)
 python scripts/import_h1b.py
 
 # Run the scraper
@@ -136,6 +136,18 @@ python scripts/import_h1b.py --file path/to/uscis_data.csv
 python scripts/import_h1b.py --file path/to/h1b_disclosure.xlsx
 ```
 
+### Adding more H1B sponsors (e.g. a Google Sheet list)
+
+```bash
+# Share the sheet as "anyone with the link can view", then:
+python scripts/import_h1b.py --url "https://docs.google.com/spreadsheets/d/<ID>/edit#gid=0"
+# or a plain text file, one company per line ("Name" or "Name,count"):
+python scripts/import_h1b.py --list my_companies.txt
+```
+
+Imports are additive (use `--replace` to reset). Name-only entries count as GREEN sponsors.
+You can also just append names to `config/h1b_employers.txt`.
+
 ## Dashboard
 
 The HTML dashboard (`output/latest.html`) features:
@@ -145,6 +157,9 @@ The HTML dashboard (`output/latest.html`) features:
 - Toggle: NEW jobs only, Rotational Programs only
 - Sortable columns: company, title, lane, location, score, posted date
 - Direct apply links
+- Tabs: All / Full-Time / Internships / Saved (★) / Applied, with live counts
+- Extra filters: posted date, H1B-friendly only, reset filters, `/` to search
+- Applied tracking with undo + Export Applied CSV
 
 ## Scheduling (macOS)
 
