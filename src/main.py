@@ -159,16 +159,17 @@ async def scrape_platform(
             await asyncio.sleep(delay)
 
     try:
-        tasks = [scrape_one(c) for c in companies]
+        # Sliding window: the semaphore in scrape_one() already caps concurrency, so
+        # launch everything and let finished slots be refilled immediately. (Fixed
+        # batches of 50 made every batch wait for its single slowest company.)
+        total = len(companies)
         done = 0
-        batch_size = 50
-        for i in range(0, len(tasks), batch_size):
-            batch = tasks[i:i + batch_size]
-            await asyncio.gather(*batch)
-            done += len(batch)
-            if done % 200 == 0 or done == len(tasks):
+        for fut in asyncio.as_completed([scrape_one(c) for c in companies]):
+            await fut
+            done += 1
+            if done % 200 == 0 or done == total:
                 logging.getLogger(__name__).info(
-                    f"[{platform}] Progress: {done}/{len(companies)} companies scraped"
+                    f"[{platform}] Progress: {done}/{total} companies scraped"
                 )
     finally:
         # Ensure ALL scraper clients are closed even on cancellation (Finding #5)
@@ -325,14 +326,8 @@ async def run(platform_filter: str | None = None, verbose: bool = False):
 
     all_jobs: list[RawJob] = []
     errors: list[str] = []
-    for platform, company_list in companies.items():
-        if platform.startswith("_"):
-            continue
-        if platform_filter and platform != platform_filter:
-            continue
-        if not company_list:
-            continue
 
+    async def run_platform(platform: str, company_list: list):
         key = PLATFORM_KEY.get(platform)
         normalized = []
         for c in company_list:
@@ -343,12 +338,24 @@ async def run(platform_filter: str | None = None, verbose: bool = False):
 
         logger.info(f"Scraping {platform}: {len(normalized)} companies")
         try:
-            jobs = await scrape_platform(platform, normalized, delay, concurrency)
-            all_jobs.extend(jobs)
+            return await scrape_platform(platform, normalized, delay, concurrency)
         except Exception as e:
             error_msg = f"[{platform}] Platform error: {e}"
             logger.error(error_msg)
             errors.append(error_msg)
+            return []
+
+    # Platforms hit different hosts, so scrape them all at once instead of one
+    # after another — the slow ones (Workday) no longer wait behind Greenhouse.
+    todo = [
+        (platform, company_list)
+        for platform, company_list in companies.items()
+        if not platform.startswith("_")
+        and (not platform_filter or platform == platform_filter)
+        and company_list
+    ]
+    for platform_jobs in await asyncio.gather(*(run_platform(p, c) for p, c in todo)):
+        all_jobs.extend(platform_jobs)
 
     logger.info(f"Total raw jobs fetched: {len(all_jobs)}")
 
