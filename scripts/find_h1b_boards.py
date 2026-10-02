@@ -44,7 +44,7 @@ PLATFORMS = {
 }
 
 STOP_WORDS = {"the", "of", "and", "technologies", "technology", "systems", "holdings", "international",
-              "america", "usa", "us", "services", "solutions", "labs", "software"}
+              "america", "usa", "us", "services", "solutions", "labs", "software", "limited", "llp", "llc"}
 
 
 def slug_candidates(name: str) -> list[str]:
