@@ -38,7 +38,7 @@ def board_names(companies: dict) -> set[str]:
 
 
 def main():
-    companies = json.load(open(ROOT / "config" / "companies.json"))
+    companies = json.load(open(ROOT / "config" / "companies.json", encoding="utf-8"))
     conn = sqlite3.connect(str(ROOT / "data" / "jobs.db"))
     sponsors = [r[0] for r in conn.execute(
         "SELECT employer_name FROM h1b_employers GROUP BY employer_name_normalized ORDER BY SUM(worker_count) DESC")]
@@ -55,7 +55,7 @@ def main():
 
     out = ROOT / "output"
     out.mkdir(exist_ok=True)
-    (out / "h1b_missing_boards.txt").write_text("\n".join(missing) + "\n")
+    (out / "h1b_missing_boards.txt").write_text("\n".join(missing) + "\n", encoding="utf-8")
     print(f"{len(sponsors)} H1B sponsors in DB, {len(boards)} scraped boards")
     print(f"{len(sponsors) - len(missing)} sponsors already have a board; {len(missing)} do not.")
     print(f"List written to {out / 'h1b_missing_boards.txt'} — run scripts/discover_boards.py on it to find boards.")

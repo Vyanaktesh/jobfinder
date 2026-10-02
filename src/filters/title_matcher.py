@@ -43,7 +43,7 @@ class TitleMatcher:
     """
 
     def __init__(self, config_path: str | Path, fuzzy_min_threshold: int = 65, fuzzy_pass_threshold: int = 70):
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             config = json.load(f)
 
         self.abbreviations: dict[str, str] = config.get("abbreviations", {})

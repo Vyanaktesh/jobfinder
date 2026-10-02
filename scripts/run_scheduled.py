@@ -38,7 +38,7 @@ def load_env():
     """Load .env file into environment."""
     env_file = PROJECT_DIR / ".env"
     if env_file.exists():
-        for line in env_file.read_text().splitlines():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, _, val = line.partition("=")

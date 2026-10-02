@@ -111,7 +111,7 @@ def existing_tokens(companies: dict) -> dict[str, set[str]]:
 
 def sponsor_names(args) -> list[str]:
     if args.names:
-        return [l.strip().split(",")[0] for l in Path(args.names).read_text().splitlines()
+        return [l.strip().split(",")[0] for l in Path(args.names).read_text(encoding="utf-8").splitlines()
                 if l.strip() and not l.startswith("#")]
     conn = sqlite3.connect(str(ROOT / "data" / "jobs.db"))
     rows = conn.execute("SELECT employer_name FROM h1b_employers GROUP BY employer_name_normalized "
@@ -121,7 +121,7 @@ def sponsor_names(args) -> list[str]:
 
 
 async def main_async(args):
-    companies = json.loads(COMPANIES_FILE.read_text())
+    companies = json.loads(COMPANIES_FILE.read_text(encoding="utf-8"))
     have = existing_tokens(companies)
     names = sponsor_names(args)
     if args.limit:
@@ -146,9 +146,9 @@ async def main_async(args):
                 print(f"  ... {i}/{len(names)}")
 
     OUT_DIR.mkdir(exist_ok=True)
-    (OUT_DIR / "h1b_no_board_found.txt").write_text("\n".join(none_found) + "\n")
+    (OUT_DIR / "h1b_no_board_found.txt").write_text("\n".join(none_found) + "\n", encoding="utf-8")
     if added and not args.dry_run:
-        COMPANIES_FILE.write_text(json.dumps(companies, indent=2))
+        COMPANIES_FILE.write_text(json.dumps(companies, indent=2), encoding="utf-8")
     print(f"\n{len(added)} new boards {'(dry run, not saved)' if args.dry_run else 'added to companies.json'}; "
           f"{len(none_found)} sponsors have no Greenhouse/Lever/Ashby board "
           f"(see output/h1b_no_board_found.txt — likely Workday/iCIMS).")
