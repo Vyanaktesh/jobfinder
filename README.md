@@ -130,6 +130,19 @@ Jobs from companies with no H1B record are kept (flagged RED) by default. Option
 under `[h1b]` in `config/settings.toml` to drop them at scrape time. Run `python scripts/h1b_coverage.py` to see which
 sponsors still have no job board configured.
 
+### Finding job boards for your H1B sponsors
+
+A sponsor only produces jobs if it has a board in `config/companies.json`. Auto-discover them:
+
+```bash
+python scripts/h1b_coverage.py                  # which sponsors have no board yet
+python scripts/find_h1b_boards.py --dry-run     # probe Greenhouse/Lever/Ashby (needs internet)
+python scripts/find_h1b_boards.py               # same, and add the hits to companies.json
+```
+
+Sponsors with no Greenhouse/Lever/Ashby board (usually Workday/iCIMS companies) are listed in
+`output/h1b_no_board_found.txt` — add those by hand (see "Adding a company").
+
 ### Adding more H1B sponsors (e.g. a Google Sheet list)
 
 ```bash
