@@ -141,7 +141,12 @@ python scripts/find_h1b_boards.py               # same, and add the hits to comp
 ```
 
 Sponsors with no Greenhouse/Lever/Ashby board (usually Workday/iCIMS companies) are listed in
-`output/h1b_no_board_found.txt` — add those by hand (see "Adding a company").
+`output/h1b_no_board_found.txt`. For those, open the company's careers page, click into a job, and paste the URL:
+
+```bash
+python scripts/add_board.py "Cognizant=https://cognizant.wd1.myworkdayjobs.com/en-US/CognizantCareers/job/..."
+python scripts/add_board.py --file my_urls.txt   # one Name=URL per line; add --verify to test each board
+```
 
 ### Adding more H1B sponsors (e.g. a Google Sheet list)
 
