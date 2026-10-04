@@ -171,11 +171,11 @@ def main():
     output_dir.mkdir(exist_ok=True)
 
     js_path = output_dir / "autofill.js"
-    js_path.write_text(js)
+    js_path.write_text(js, encoding="utf-8")
     print(f"Full JS written to: {js_path}")
 
     bookmarklet_path = output_dir / "autofill_bookmarklet.txt"
-    bookmarklet_path.write_text(bookmarklet)
+    bookmarklet_path.write_text(bookmarklet, encoding="utf-8")
     print(f"Bookmarklet URL written to: {bookmarklet_path}")
 
     print(f"\nTo use:")

@@ -91,7 +91,7 @@ def load_config():
     """Load settings.toml and companies.json from config directory."""
     with open(CONFIG_DIR / "settings.toml", "rb") as f:
         settings = tomllib.load(f)
-    with open(CONFIG_DIR / "companies.json") as f:
+    with open(CONFIG_DIR / "companies.json", encoding="utf-8") as f:
         companies = json.load(f)
     return settings, companies
 
@@ -459,7 +459,7 @@ async def run(platform_filter: str | None = None, verbose: bool = False):
         try:
             profile = load_profile(profile_path)
             autofill_js = generate_fill_js(profile)
-            (output_dir / "autofill.js").write_text(autofill_js)
+            (output_dir / "autofill.js").write_text(autofill_js, encoding="utf-8")
             logger.info("Autofill JS regenerated from applicant profile")
         except Exception as e:
             logger.warning(f"Failed to generate autofill JS: {e}")

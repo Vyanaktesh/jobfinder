@@ -49,10 +49,10 @@ def render_dashboard(jobs: list[dict], stats: dict, output_dir: Path, templates_
     template = env.get_template("dashboard.html")
 
     static_dir = templates_dir.parent / "static"
-    css = (static_dir / "style.css").read_text() if (static_dir / "style.css").exists() else ""
-    js = (static_dir / "dashboard.js").read_text() if (static_dir / "dashboard.js").exists() else ""
+    css = (static_dir / "style.css").read_text(encoding="utf-8") if (static_dir / "style.css").exists() else ""
+    js = (static_dir / "dashboard.js").read_text(encoding="utf-8") if (static_dir / "dashboard.js").exists() else ""
     autofill_path = output_dir / "autofill.js"
-    autofill_js = autofill_path.read_text() if autofill_path.exists() else ""
+    autofill_js = autofill_path.read_text(encoding="utf-8") if autofill_path.exists() else ""
 
     # "</" inside inline <script> would end the tag early.
     jobs_json = json.dumps([{k: j.get(k) for k in _JSON_FIELDS} for j in jobs]).replace("</", "<\\/")

@@ -200,7 +200,7 @@ def import_curated(db_path: Path):
     print(f"Imported {len(employers)} curated employers into {db_path}")
     conn.close()
     if DEFAULT_LIST.exists():
-        merge_employers(db_path, parse_name_list(DEFAULT_LIST.read_text()))
+        merge_employers(db_path, parse_name_list(DEFAULT_LIST.read_text(encoding="utf-8")))
 
 
 def import_csv(filepath: Path, db_path: Path):
@@ -293,7 +293,7 @@ def main():
             sys.exit("Got an HTML page, not CSV — share the sheet as 'anyone with the link can view'.")
         merge_employers(args.db, parse_csv_text(r.text), replace=args.replace)
     elif args.list:
-        merge_employers(args.db, parse_name_list(args.list.read_text()), replace=args.replace)
+        merge_employers(args.db, parse_name_list(args.list.read_text(encoding="utf-8")), replace=args.replace)
     elif args.file:
         import_csv(args.file, args.db)
     else:

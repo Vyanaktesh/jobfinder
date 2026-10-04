@@ -18,7 +18,7 @@ SOURCES = {
 
 
 def main():
-    with open(COMPANIES_FILE) as f:
+    with open(COMPANIES_FILE, encoding="utf-8") as f:
         existing = json.load(f)
 
     # Build set of existing tokens per platform
@@ -63,7 +63,7 @@ def main():
 
     client.close()
 
-    with open(COMPANIES_FILE, "w") as f:
+    with open(COMPANIES_FILE, "w", encoding="utf-8") as f:
         json.dump(existing, f, indent=2)
 
     total = sum(len(v) for k, v in existing.items() if not k.startswith("_"))

@@ -159,8 +159,8 @@ def generated_candidates(names: list[str], known_tenants: set[str]) -> list[tupl
 
 def load_h1b_names() -> list[str]:
     miss = BASE_DIR / "output" / "h1b_no_board_found.txt"
-    if miss.exists() and miss.read_text().strip():
-        return [l.strip() for l in miss.read_text().splitlines() if l.strip()]
+    if miss.exists() and miss.read_text(encoding="utf-8").strip():
+        return [l.strip() for l in miss.read_text(encoding="utf-8").splitlines() if l.strip()]
     import sqlite3
     conn = sqlite3.connect(str(BASE_DIR / "data" / "jobs.db"))
     rows = conn.execute("SELECT employer_name FROM h1b_employers GROUP BY employer_name_normalized "
@@ -213,7 +213,7 @@ async def main(candidates=None, write=False):
 
     if write and accepted:
         cfg = BASE_DIR / "config" / "companies.json"
-        data = json.loads(cfg.read_text())
+        data = json.loads(cfg.read_text(encoding="utf-8"))
         have = {(c.get("tenant", "").lower(), c.get("site", "").lower()) for c in data.get("workday", [])}
         new = []
         for a in accepted:
@@ -222,7 +222,7 @@ async def main(candidates=None, write=False):
                 have.add(k)
                 new.append(a)
         data.setdefault("workday", []).extend(new)
-        cfg.write_text(json.dumps(data, indent=2))
+        cfg.write_text(json.dumps(data, indent=2), encoding="utf-8")
         print(f"Added {len(new)} Workday boards to {cfg}")
 
 
