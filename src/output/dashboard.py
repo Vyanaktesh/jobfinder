@@ -69,8 +69,23 @@ def render_dashboard(jobs: list[dict], stats: dict, output_dir: Path, templates_
         inline_js=js.replace("</script", "<\\/script"),
     )
 
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    path = output_dir / f"dashboard_{stamp}.html"
+    path = output_dir / "latest.html"
     path.write_text(html, encoding="utf-8")
-    (output_dir / "latest.html").write_text(html, encoding="utf-8")
+    remove_old_timestamped(output_dir)
     return path
+
+
+def remove_old_timestamped(output_dir: Path) -> int:
+    """Delete leftover dashboard_*.html / digest_*.md / jobs_*.csv from older versions.
+
+    Runs now overwrite a single latest.* file instead of piling up a new copy each time.
+    """
+    removed = 0
+    for pattern in ("dashboard_*.html", "digest_*.md", "jobs_*.csv"):
+        for f in Path(output_dir).glob(pattern):
+            try:
+                f.unlink()
+                removed += 1
+            except OSError:
+                pass
+    return removed

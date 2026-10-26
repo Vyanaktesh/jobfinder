@@ -28,8 +28,7 @@ def render_digest(jobs: list[dict], stats: dict, output_dir: Path, top_n: int = 
             f"| [Apply]({j['apply_url']}) |"
         )
 
-    path = output_dir / f"digest_{now:%Y%m%d_%H%M}.md"
+    path = output_dir / "latest.md"
     text = "\n".join(lines) + "\n"
     path.write_text(text, encoding="utf-8")
-    (output_dir / "latest.md").write_text(text, encoding="utf-8")
     return path

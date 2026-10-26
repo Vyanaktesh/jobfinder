@@ -33,7 +33,8 @@ python -m src.main --verbose                # Debug logging
 python -m src.main --platform greenhouse    # Single platform only
 ```
 
-Open `output/latest.html` in a browser to view the dashboard.
+Open `output/latest.html` in a browser to view the dashboard. Every run overwrites the same three files
+(`output/latest.html`, `latest.md`, `latest.csv`) — old timestamped copies are deleted automatically.
 
 ## Running it from the dashboard (recommended)
 
