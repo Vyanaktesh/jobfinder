@@ -17,7 +17,7 @@
       <button id="fullBtn" class="toolbar-btn run-btn-alt" title="Scrape every board (skips ones that have been empty recently)">&#9654; Full scan</button>
       <button id="recheckBtn" class="toolbar-btn" title="Full scan, but re-check boards that were empty on recent runs">&#8635; Re-check all</button>
       <button id="stopBtn" class="toolbar-btn stop-btn" hidden>&#9632; Stop</button>
-      <button id="exportApplied" class="toolbar-btn" title="Download a CSV of jobs you've applied to">&#11015; Export Applied</button>
+      <button id="exportApplied" class="toolbar-btn" title="Download a CSV of everything in your tracker">&#11015; Export Tracker</button>
       <span id="controlStatus" class="control-status" title="Start the server with: python scripts/control_server.py">&#9679; checking&hellip;</span>
     </div>
     <div class="run-panel" id="runPanel" hidden>
@@ -33,7 +33,7 @@
     <button class="type-tab" data-type="fulltime">Full-Time <span class="type-tab-count">{{ jobs|length - intern_count }}</span></button>
     <button class="type-tab" data-type="internship">&#127891; Internships <span class="type-tab-count">{{ intern_count }}</span></button>
     <button class="type-tab" data-type="saved">&#9733; Saved <span class="type-tab-count">0</span></button>
-    <button class="type-tab" data-type="applied">&#10003; Applied <span class="type-tab-count">0</span></button>
+    <button class="type-tab" data-type="tracker">&#128203; Tracker <span class="type-tab-count">0</span></button>
   </div>
 
   <div class="controls">
@@ -85,7 +85,7 @@
         <th data-sort="sponsorship_flag" class="sortable sort-active">H1B</th>
         <th data-sort="match_score" class="sortable">Match</th>
         <th>Apply</th>
-        <th title="Save for later">&#9733;</th>
+        <th title="Track this job">Status</th>
       </tr>
     </thead>
     <tbody id="jobBody">
@@ -103,7 +103,8 @@
           data-new="{{ job.is_new|int }}"
           data-rotational="{{ job.is_rotational|int }}"
           data-internship="{{ job.is_internship|int }}"
-          data-jobid="{{ job.id }}">
+          data-jobid="{{ job.id }}"
+          data-key="{{ job.dedup_key }}">
         <td>{{ job.company_name }}</td>
         <td>
           {{ job.title }}
@@ -125,13 +126,33 @@
         <td><div class="apply-cell">
           <a href="{{ job.apply_url }}" target="_blank" rel="noopener" class="apply-btn">Apply &rarr;</a>
           {% if autofill_js %}<button class="autofill-btn" title="Copy autofill script to clipboard">Autofill</button>{% endif %}
-          <button class="undo-btn" type="button" title="Mark as not applied" hidden>undo</button>
         </div></td>
-        <td class="star-cell"><button class="star-btn" type="button" title="Save for later" aria-label="Save">&#9734;</button></td>
+        <td class="status-cell">
+          <select class="status-select" aria-label="Application status">
+            <option value="none">&mdash;</option>
+            <option value="saved">&#9733; Saved</option>
+            <option value="applied">Applied</option>
+            <option value="interviewing">Interviewing</option>
+            <option value="offer">Offer</option>
+            <option value="rejected">Rejected</option>
+            <option value="withdrawn">Withdrawn</option>
+          </select>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  <section id="trackerView" class="tracker" hidden>
+    <div class="tracker-summary" id="trackerSummary"></div>
+    <div class="tracker-chips" id="trackerChips"></div>
+    <table id="trackerTable">
+      <thead><tr>
+        <th>Company</th><th>Role</th><th>Status</th><th>Applied</th><th>Last update</th><th>Notes</th><th></th>
+      </tr></thead>
+      <tbody id="trackerBody"></tbody>
+    </table>
+    <div class="empty-state" id="trackerEmpty">Nothing tracked yet. Set a job's <b>Status</b> (or click <b>Apply</b>) and it shows up here.</div>
+  </section>
   <div class="empty-state" id="emptyState">No jobs match these filters. <button class="toolbar-btn" type="button" id="emptyReset">Reset filters</button></div>
 </div>
 
@@ -139,6 +160,7 @@
 
 <script>
 const JOBS = {{ jobs_json|safe }};
+const APPLICATIONS = {{ applications_json|safe }};
 const AUTOFILL_JS = {{ autofill_js|tojson }};
 </script>
 {% if inline_js %}<script>{{ inline_js|safe }}</script>{% else %}<script src="../static/dashboard.js"></script>{% endif %}

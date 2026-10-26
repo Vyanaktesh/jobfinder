@@ -59,6 +59,19 @@ Tune the empty-board skipping in `config/settings.toml` (`skip_empty_days`, `ski
 > (which embeds your contact details) are gitignored. Only `.example.yml`
 > templates are tracked. The server only listens on `127.0.0.1` and never serves the autofill script.
 
+## Application tracker
+
+Every job row has a **Status** dropdown (Saved, Applied, Interviewing, Offer, Rejected, Withdrawn), and clicking
+**Apply** marks the job as Applied. The **Tracker** tab lists everything you've applied to with:
+
+- status filters, a "heard back" rate, and a **Follow up?** flag on applications with no update for 7+ days
+- a notes box per application (recruiter, referral, next step) and **Export Tracker** to CSV
+
+Your tracker is stored in `data/jobs.db` (table `applications`) whenever the dashboard server is running
+(`start_dashboard.bat`), so it survives clearing your browser and keeps tracking jobs after they expire from the
+scrape. If the server is off, changes are kept in the browser and synced the next time it's on. Your old
+browser-only "applied" and "saved" marks are imported automatically the first time.
+
 ## Data Sources
 
 | Platform | API Type | Companies | Notes |

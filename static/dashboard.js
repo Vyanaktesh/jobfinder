@@ -68,6 +68,7 @@
   function setActiveTab(type) {
     typeFilter = type;
     typeTabs.forEach(t => t.classList.toggle('active', t.dataset.type === type));
+    showTrackerView(type === 'tracker');
   }
 
   function applyFilters() {
@@ -80,8 +81,6 @@
     const noApplied = hideApplied.checked;
     const maxAge = parseInt(postedFilter.value, 10) || 0;
     const onlyH1b = h1bOnly.checked;
-    const visited = getVisited();
-    const saved = getSaved();
     const cutoff = maxAge ? Date.now() - maxAge * 86400000 : 0;
 
     let shown = 0;
@@ -105,8 +104,7 @@
       // they're never silently mixed into (or hidden from) full-time results.
       if (typeFilter === 'internship' && row.dataset.internship !== '1') visible = false;
       if (typeFilter === 'fulltime' && row.dataset.internship === '1') visible = false;
-      if (typeFilter === 'saved' && !saved[row.dataset.jobid]) visible = false;
-      if (typeFilter === 'applied' && !isApplied(row, visited)) visible = false;
+      if (typeFilter === 'saved' && statusOf(row) !== 'saved') visible = false;
 
       if (onlyH1b && !(row.dataset.sponsor === 'GREEN' || row.dataset.sponsor === 'YELLOW' || row.dataset.sponsor === 'NA')) visible = false;
       if (cutoff) {
@@ -114,17 +112,17 @@
         if (!t || t < cutoff) visible = false;
       }
 
-      if (noApplied && isApplied(row, visited)) visible = false;
+      if (noApplied && isApplied(row)) visible = false;
 
       row.classList.toggle('hidden', !visible);
       if (visible) shown++;
     });
 
     const label = typeFilter === 'internship' ? 'internships' : typeFilter === 'fulltime' ? 'full-time jobs' : 'jobs';
-    const appliedN = Array.from(rows).filter(r => isApplied(r, visited)).length;
+    const appliedN = Object.values(apps).filter(a => TRACKED(a.status)).length;
     statusBar.textContent = `Showing ${shown} of ${rows.length} ${label} · ${appliedN} applied`;
     if (emptyState) emptyState.classList.toggle('show', shown === 0);
-    updateTabCounts(rows, visited, saved);
+    updateTabCounts(rows);
     saveFilterState();
   }
 
@@ -193,64 +191,283 @@
     saveFilterState();
   }
 
-  // --- Visited link tracking via localStorage ---
-  const VISITED_KEY = 'jobscraper_visited';
+  // =====================================================================
+  // Application tracker
+  // Source of truth is the local server's database (so it survives clearing the
+  // browser); localStorage is a cache that also holds edits made while the
+  // server was off, and they are pushed on the next connection.
+  // =====================================================================
+  const APPS_KEY = 'jobscraper_apps';
+  const PENDING_KEY = 'jobscraper_apps_pending';
+  const MIGRATED_KEY = 'jobscraper_apps_migrated';
+  const VISITED_KEY = 'jobscraper_visited';   // legacy
+  const SAVED_KEY = 'jobscraper_saved';       // legacy
+  const STATUS_LABEL = { none: '—', saved: 'Saved', applied: 'Applied', interviewing: 'Interviewing',
+                         offer: 'Offer', rejected: 'Rejected', withdrawn: 'Withdrawn' };
+  const TRACKED = st => !!st && st !== 'none' && st !== 'saved';   // applied or later
+  const FOLLOW_UP_DAYS = 7;
+  const jobsByKey = Object.fromEntries((typeof JOBS !== 'undefined' ? JOBS : []).map(j => [j.dedup_key, j]));
+  let apps = {};                 // job_key -> record
+  let pending = new Set();       // job_keys changed but not yet saved on the server
+  let trackerFilter = '';
+  let trackerReady = false;
+  let pushTimer = null;
 
-  function getVisited() { return store.get(VISITED_KEY, {}); }
+  const nowIso = () => new Date().toISOString().slice(0, 19);
+  const rowKey = row => row.dataset.key;
+  const statusOf = row => (apps[rowKey(row)] || {}).status || 'none';
+  const isApplied = row => TRACKED(statusOf(row));
 
-  function markVisited(url) {
-    const v = getVisited();
-    v[url] = Date.now();
-    store.set(VISITED_KEY, v);
+  function mergeApp(rec) {
+    if (!rec || !rec.job_key) return false;
+    const cur = apps[rec.job_key];
+    if (cur && (cur.updated_at || '') >= (rec.updated_at || '')) return false;
+    apps[rec.job_key] = rec;
+    return true;
   }
 
-  function unmarkVisited(url) {
-    const v = getVisited();
-    delete v[url];
-    store.set(VISITED_KEY, v);
+  function persistLocal() {
+    store.set(APPS_KEY, apps);
+    store.set(PENDING_KEY, Array.from(pending));
   }
 
-  function isApplied(row, visited) {
-    const link = row.querySelector('a.apply-btn');
-    return !!(link && (visited || getVisited())[link.href]);
+  function snapshot(key) {
+    const j = jobsByKey[key] || {};
+    return { job_key: key, status: 'none', notes: '', applied_at: '', updated_at: '',
+             company: j.company_name || '', title: j.title || '', location: j.location_parsed || '',
+             apply_url: j.apply_url || '', sponsorship_flag: j.sponsorship_flag || '', h1b_count: j.h1b_count || 0 };
   }
 
-  function setRowApplied(row, applied) {
+  function initTracker() {
+    apps = {};
+    Object.values(store.get(APPS_KEY, {})).forEach(mergeApp);
+    const embedded = {};
+    (typeof APPLICATIONS !== 'undefined' ? APPLICATIONS : []).forEach(a => { embedded[a.job_key] = a; mergeApp(a); });
+
+    // One-time import of the old browser-only "applied" / "saved" marks
+    if (!store.get(MIGRATED_KEY, false)) {
+      const visited = store.get(VISITED_KEY, {});
+      const saved = store.get(SAVED_KEY, {});
+      document.querySelectorAll('tr.job-row').forEach(row => {
+        const key = rowKey(row);
+        if ((apps[key] || {}).status && apps[key].status !== 'none') return;
+        const link = row.querySelector('a.apply-btn');
+        const ts = link && visited[link.href];
+        if (ts) {
+          const when = new Date(ts).toISOString().slice(0, 19);
+          apps[key] = Object.assign(snapshot(key), { status: 'applied', applied_at: when, updated_at: when });
+        } else if (saved[row.dataset.jobid]) {
+          apps[key] = Object.assign(snapshot(key), { status: 'saved', updated_at: nowIso() });
+        }
+      });
+      store.set(MIGRATED_KEY, true);
+    }
+
+    // Anything newer locally than what the page was built with must reach the server
+    pending = new Set(store.get(PENDING_KEY, []));
+    Object.keys(apps).forEach(k => {
+      if (!embedded[k] || (embedded[k].updated_at || '') < (apps[k].updated_at || '')) pending.add(k);
+    });
+    persistLocal();
+    trackerReady = true;
+    refreshAllRows();
+    if (typeFilter === 'tracker') renderTracker();
+  }
+
+  function refreshRow(row) {
+    const key = rowKey(row);
+    const st = (apps[key] || {}).status || 'none';
+    const sel = row.querySelector('.status-select');
+    if (sel && sel.value !== st) sel.value = st;
     const a = row.querySelector('a.apply-btn');
-    if (!a) return;
-    a.classList.toggle('visited', applied);
-    a.textContent = applied ? 'Applied ✓' : 'Apply →';
-    row.classList.toggle('visited-row', applied);
-    const undo = row.querySelector('.undo-btn');
-    if (undo) undo.hidden = !applied;
+    const done = TRACKED(st);
+    if (a) {
+      a.classList.toggle('visited', done);
+      a.textContent = done ? (STATUS_LABEL[st] + ' ✓') : 'Apply →';
+    }
+    row.classList.toggle('visited-row', done);
+    row.dataset.status = st;
   }
 
-  function applyVisitedStyles() {
-    const v = getVisited();
-    document.querySelectorAll('tr.job-row').forEach(row => setRowApplied(row, isApplied(row, v)));
+  function refreshAllRows() {
+    document.querySelectorAll('tr.job-row').forEach(refreshRow);
   }
 
-  // --- Saved (starred) jobs ---
-  const SAVED_KEY = 'jobscraper_saved';
-  function getSaved() { return store.get(SAVED_KEY, {}); }
+  function setStatus(key, status) {
+    const rec = Object.assign({}, apps[key] || snapshot(key));
+    rec.status = status;
+    rec.updated_at = nowIso();
+    if (TRACKED(status) && !rec.applied_at) rec.applied_at = rec.updated_at;
+    if (status === 'none' || status === 'saved') rec.applied_at = '';
+    apps[key] = rec;
+    changed(key);
+  }
 
-  function applySavedStyles() {
-    const sv = getSaved();
-    document.querySelectorAll('tr.job-row').forEach(row => {
-      const on = !!sv[row.dataset.jobid];
-      const b = row.querySelector('.star-btn');
-      if (b) { b.classList.toggle('on', on); b.textContent = on ? '\u2605' : '\u2606'; }
+  function setNotes(key, notes) {
+    const rec = apps[key];
+    if (!rec || rec.notes === notes) return;
+    rec.notes = notes;
+    rec.updated_at = nowIso();
+    changed(key);
+  }
+
+  function changed(key) {
+    pending.add(key);
+    persistLocal();
+    document.querySelectorAll(`tr.job-row[data-key="${CSS.escape(key)}"]`).forEach(refreshRow);
+    applyFilters();
+    if (typeFilter === 'tracker') renderTracker();
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(pushPending, 400);
+  }
+
+  async function pushPending() {
+    if (!pending.size || typeof serverUp === 'undefined' || !serverUp) return;
+    const keys = Array.from(pending);
+    const records = keys.map(k => apps[k]).filter(Boolean);
+    const d = await post('/applications', { applications: records });
+    if (d && d.ok) {
+      keys.forEach(k => pending.delete(k));
+      persistLocal();
+    }
+  }
+
+  async function syncFromServer() {
+    try {
+      const r = await fetch(CONTROL_BASE + '/applications', { cache: 'no-store' });
+      if (!r.ok) return;
+      const d = await r.json();
+      let any = false;
+      (d.applications || []).forEach(a => { if (mergeApp(a)) any = true; });
+      if (any) {
+        persistLocal();
+        refreshAllRows();
+        applyFilters();
+        if (typeFilter === 'tracker') renderTracker();
+      }
+      await pushPending();
+    } catch {}
+  }
+
+  // ---- Tracker view ----
+  const trackerView = document.getElementById('trackerView');
+  const trackerBody = document.getElementById('trackerBody');
+  const trackerEmpty = document.getElementById('trackerEmpty');
+
+  function daysSince(iso) {
+    const t = Date.parse(iso ? iso + (iso.length <= 19 ? 'Z' : '') : '');
+    return t ? (Date.now() - t) / 86400000 : 0;
+  }
+
+  function fmtDate(iso) { return iso ? iso.slice(0, 10) : ''; }
+
+  function showTrackerView(on) {
+    ['.controls', '#jobTable', '#emptyState'].forEach(sel => {
+      const el = document.querySelector(sel);
+      if (el) el.hidden = on;
     });
+    if (trackerView) trackerView.hidden = !on;
+    if (on && trackerReady) renderTracker();
   }
 
-  function updateTabCounts(rows, visited, saved) {
-    let intern = 0, applied = 0, savedN = 0;
-    rows.forEach(r => {
-      if (r.dataset.internship === '1') intern++;
-      if (isApplied(r, visited)) applied++;
-      if (saved[r.dataset.jobid]) savedN++;
+  function renderTracker() {
+    if (!trackerBody) return;
+    const all = Object.values(apps).filter(a => TRACKED(a.status));
+    const count = st => all.filter(a => a.status === st).length;
+    const responded = count('interviewing') + count('offer') + count('rejected');
+    const active = all.length - count('withdrawn');
+    const rate = active ? Math.round(100 * responded / active) : 0;
+    const followUps = all.filter(needsFollowUp).length;
+    document.getElementById('trackerSummary').textContent = all.length
+      ? `${all.length} application${all.length === 1 ? '' : 's'} · ${count('interviewing')} interviewing · ${count('offer')} offer${count('offer') === 1 ? '' : 's'} · ${rate}% heard back`
+        + (followUps ? ` · ${followUps} need a follow-up` : '')
+      : '';
+
+    const chips = document.getElementById('trackerChips');
+    chips.textContent = '';
+    [['', 'All', all.length], ['applied', 'Applied', count('applied')], ['interviewing', 'Interviewing', count('interviewing')],
+     ['offer', 'Offer', count('offer')], ['rejected', 'Rejected', count('rejected')], ['withdrawn', 'Withdrawn', count('withdrawn')]]
+      .forEach(([val, label, n]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'tracker-chip' + (trackerFilter === val ? ' active' : '');
+        b.textContent = `${label} ${n}`;
+        b.onclick = () => { trackerFilter = val; renderTracker(); };
+        chips.appendChild(b);
+      });
+
+    const list = all.filter(a => !trackerFilter || a.status === trackerFilter)
+      .sort((x, y) => (y.updated_at || '').localeCompare(x.updated_at || ''));
+    trackerBody.textContent = '';
+    list.forEach(a => trackerBody.appendChild(trackerRow(a)));
+    if (trackerEmpty) trackerEmpty.classList.toggle('show', list.length === 0);
+  }
+
+  function needsFollowUp(a) {
+    return a.status === 'applied' && daysSince(a.updated_at) >= FOLLOW_UP_DAYS;
+  }
+
+  function trackerRow(a) {
+    const tr = document.createElement('tr');
+    tr.className = 'tracker-row st-' + a.status;
+    const cell = (child) => { const td = document.createElement('td'); if (child) td.append(child); tr.appendChild(td); return td; };
+
+    cell(a.company || '');
+    const roleTd = cell();
+    if (/^https?:\/\//i.test(a.apply_url || '')) {
+      const link = document.createElement('a');
+      link.href = a.apply_url; link.target = '_blank'; link.rel = 'noopener';
+      link.textContent = a.title || '(untitled)';
+      roleTd.appendChild(link);
+    } else {
+      roleTd.textContent = a.title || '(untitled)';
+    }
+    if (a.sponsorship_flag && a.sponsorship_flag !== 'NA') {
+      const tag = document.createElement('span');
+      tag.className = 'sponsor-dot sponsor-' + a.sponsorship_flag.toLowerCase();
+      tag.textContent = a.sponsorship_flag === 'RED' ? 'NO INFO' : a.sponsorship_flag;
+      roleTd.append(' ', tag);
+    }
+
+    const stTd = cell();
+    const sel = document.createElement('select');
+    sel.className = 'status-select';
+    ['applied', 'interviewing', 'offer', 'rejected', 'withdrawn', 'saved', 'none'].forEach(v => {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = v === 'none' ? 'Remove from tracker' : STATUS_LABEL[v];
+      sel.appendChild(o);
     });
-    const counts = { '': rows.length, fulltime: rows.length - intern, internship: intern, saved: savedN, applied };
+    sel.value = a.status;
+    sel.onchange = () => setStatus(a.job_key, sel.value);
+    stTd.appendChild(sel);
+    if (needsFollowUp(a)) {
+      const f = document.createElement('span');
+      f.className = 'badge badge-followup';
+      f.textContent = 'Follow up?';
+      f.title = `No update for ${FOLLOW_UP_DAYS}+ days`;
+      stTd.append(' ', f);
+    }
+
+    cell(fmtDate(a.applied_at));
+    cell(fmtDate(a.updated_at));
+
+    const ta = document.createElement('textarea');
+    ta.className = 'tracker-notes';
+    ta.rows = 1;
+    ta.placeholder = 'Add a note (recruiter, referral, next step…)';
+    ta.value = a.notes || '';
+    ta.onchange = () => setNotes(a.job_key, ta.value);
+    cell(ta);
+    cell('');
+    return tr;
+  }
+
+  function updateTabCounts(rows) {
+    let intern = 0;
+    rows.forEach(r => { if (r.dataset.internship === '1') intern++; });
+    const vals = Object.values(apps);
+    const counts = { '': rows.length, fulltime: rows.length - intern, internship: intern,
+      saved: vals.filter(a => a.status === 'saved').length, tracker: vals.filter(a => TRACKED(a.status)).length };
     typeTabs.forEach(t => {
       const el = t.querySelector('.type-tab-count');
       if (el && counts[t.dataset.type] !== undefined) el.textContent = counts[t.dataset.type];
@@ -266,24 +483,9 @@
     applyFilters();
   }
 
-  document.addEventListener('click', e => {
-    const star = e.target.closest('.star-btn');
-    if (star) {
-      const id = star.closest('tr.job-row').dataset.jobid;
-      const sv = getSaved();
-      if (sv[id]) delete sv[id]; else sv[id] = Date.now();
-      store.set(SAVED_KEY, sv);
-      applySavedStyles();
-      applyFilters();
-      return;
-    }
-    const undo = e.target.closest('.undo-btn');
-    if (undo) {
-      const row = undo.closest('tr.job-row');
-      unmarkVisited(row.querySelector('a.apply-btn').href);
-      setRowApplied(row, false);
-      applyFilters();
-    }
+  document.addEventListener('change', e => {
+    const sel = e.target.closest('#jobTable .status-select');
+    if (sel) setStatus(rowKey(sel.closest('tr.job-row')), sel.value);
   });
 
   document.getElementById('resetFilters')?.addEventListener('click', resetFilters);
@@ -298,38 +500,30 @@
   });
 
   document.getElementById('exportApplied')?.addEventListener('click', () => {
-    const v = getVisited();
-    const rows = Array.from(document.querySelectorAll('tr.job-row')).filter(r => isApplied(r, v));
-    if (!rows.length) { showToast('Nothing applied yet.', 3000); return; }
+    const list = Object.values(apps).filter(a => a.status && a.status !== 'none')
+      .sort((x, y) => (y.updated_at || '').localeCompare(x.updated_at || ''));
+    if (!list.length) { showToast('Nothing in the tracker yet.', 3000); return; }
     const q = x => '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"';
-    const byId = Object.fromEntries(JOBS.map(j => [String(j.id), j]));
-    const lines = ['company,title,location,h1b,applied_on,url'];
-    rows.forEach(r => {
-      const j = byId[r.dataset.jobid] || {};
-      const url = r.querySelector('a.apply-btn').href;
-      lines.push([j.company_name, j.title, j.location_parsed, j.sponsorship_flag,
-        new Date(v[url]).toISOString().slice(0, 10), url].map(q).join(','));
-    });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
-    a.download = 'applied_jobs.csv';
-    a.click();
-    URL.revokeObjectURL(a.href);
+    const lines = ['company,title,location,h1b,status,applied_on,last_update,notes,url'];
+    list.forEach(a => lines.push([a.company, a.title, a.location, a.sponsorship_flag, STATUS_LABEL[a.status],
+      fmtDate(a.applied_at), fmtDate(a.updated_at), a.notes, a.apply_url].map(q).join(',')));
+    const el = document.createElement('a');
+    el.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+    el.download = 'application_tracker.csv';
+    el.click();
+    URL.revokeObjectURL(el.href);
   });
 
-  // Mark link as applied on click
+  // Clicking Apply starts tracking the job as "Applied" (unless it is already further along)
   document.addEventListener('click', e => {
     const btn = e.target.closest('a.apply-btn');
-    if (btn) {
-      markVisited(btn.href);
-      setRowApplied(btn.closest('tr.job-row'), true);
-      setTimeout(applyFilters, 0);
-    }
+    if (!btn) return;
+    const row = btn.closest('tr.job-row');
+    const st = statusOf(row);
+    if (st === 'none' || st === 'saved') setStatus(rowKey(row), 'applied');
   });
 
   // Apply on page load
-  applyVisitedStyles();
-  applySavedStyles();
   restoreFilterState();
 
   // Event listeners
@@ -396,6 +590,7 @@
   const runBanner = document.getElementById('runBanner');
   const lastRunEl = document.getElementById('lastRun');
   let serverUp = false;
+  let synced = false;
   let wasRunning = false;
   let startedHere = false;
   let pollTimer = null;
@@ -484,9 +679,11 @@
       if (!r.ok) throw new Error('bad status');
       const s = await r.json();
       renderStatus(s);
+      if (!synced) { synced = true; syncFromServer(); } else { pushPending(); }
       if (s.running) delay = 2000;
     } catch {
       setControlStatus(false);
+      synced = false;
       Object.values(btns).forEach(b => { if (b) b.disabled = true; });
       if (stopBtn) stopBtn.hidden = true;
       runPanel.hidden = true;
@@ -529,6 +726,8 @@
   }
 
   pingControl();
+
+  initTracker();
 
   // Initial sort + filter (uses restored state or defaults)
   document.querySelectorAll('th.sortable').forEach(h => {

@@ -556,3 +556,24 @@ tr.hidden { display: none; }
 .run-banner .toolbar-btn { margin-left: 8px; }
 .last-run { margin-top: 8px; font-size: 13px; color: #8b949e; }
 [hidden] { display: none !important; }
+
+/* --- application tracker --- */
+.status-select { min-width: 0; padding: 4px 8px; font-size: 12px; }
+tr.job-row[data-status="saved"] .status-select { color: #d29922; }
+tr.job-row[data-status="applied"] .status-select { color: #58a6ff; }
+tr.job-row[data-status="interviewing"] .status-select { color: #a371f7; }
+tr.job-row[data-status="offer"] .status-select { color: #3fb950; }
+tr.job-row[data-status="rejected"] .status-select, tr.job-row[data-status="withdrawn"] .status-select { color: #8b949e; }
+.tracker { margin-top: 4px; }
+.tracker-summary { font-size: 14px; color: #c9d1d9; margin-bottom: 12px; }
+.tracker-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.tracker-chip { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 14px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+.tracker-chip:hover { border-color: #58a6ff; }
+.tracker-chip.active { background: rgba(88,166,255,.15); border-color: #58a6ff; color: #58a6ff; }
+.tracker-row td { vertical-align: middle; }
+.tracker-row a { color: #58a6ff; text-decoration: none; }
+.tracker-row a:hover { text-decoration: underline; }
+.tracker-row.st-rejected, .tracker-row.st-withdrawn { opacity: .6; }
+.tracker-notes { width: 100%; min-width: 220px; min-height: 30px; background: #0d1117; color: #e1e4e8; border: 1px solid #30363d; border-radius: 6px; padding: 5px 8px; font: inherit; font-size: 13px; resize: vertical; }
+.tracker-notes:focus { outline: none; border-color: #58a6ff; }
+.badge-followup { background: #9a6700; color: #fff; }

@@ -11,6 +11,8 @@ Works on Windows, macOS and Linux. It serves output/latest.html and exposes:
                         full    = everything, skipping boards that were recently empty
                         recheck = everything, re-checking even the empty boards
     POST /stop     -> stop the running scrape
+    GET  /applications  -> every tracked application (the dashboard's tracker)
+    POST /applications  -> body {"applications": [...]}; saves them (newest updated_at wins)
     GET  /         -> the latest dashboard
 
 Everything binds to 127.0.0.1 only; nothing is reachable from other machines.
@@ -219,6 +221,24 @@ def status() -> dict:
     }
 
 
+def load_applications() -> list[dict]:
+    from src.db import JobDB
+    db = JobDB(DB_FILE)
+    try:
+        return db.get_applications()
+    finally:
+        db.close()
+
+
+def save_applications(records: list) -> int:
+    from src.db import JobDB
+    db = JobDB(DB_FILE)
+    try:
+        return db.upsert_applications(records)
+    finally:
+        db.close()
+
+
 def ensure_dashboard():
     """Build output/latest.html from the DB if it doesn't exist yet."""
     if (OUTPUT_DIR / "latest.html").exists() or not DB_FILE.exists():
@@ -250,6 +270,8 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(urlparse(self.path).path)
         if path == "/status":
             return self._json(200, status())
+        if path == "/applications":
+            return self._json(200, {"applications": load_applications()})
         if path in ("/", ""):
             path = "/latest.html"
         target = (OUTPUT_DIR / path.lstrip("/")).resolve()
@@ -286,6 +308,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/run":
             ok, msg = start_run(data.get("mode", "full"))
             return self._json(200 if ok else 409, {"ok": ok, "message": msg})
+        if path == "/applications":
+            records = data.get("applications")
+            if not isinstance(records, list) or len(records) > 5000:
+                return self._json(400, {"ok": False, "message": "applications must be a list"})
+            return self._json(200, {"ok": True, "saved": save_applications(records)})
         if path == "/stop":
             ok, msg = stop_run()
             return self._json(200 if ok else 409, {"ok": ok, "message": msg})
