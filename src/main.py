@@ -28,6 +28,8 @@ from src.filters.sponsorship import SponsorshipFilter
 from src.filters.title_matcher import TitleMatcher
 from src.h1b.lookup import H1BLookup
 from src.models import FilteredJob, RawJob
+from src.progress import ProgressTracker
+from src.scrapers.board_cache import BoardCache
 from src.apply.bookmarklet import generate_fill_js
 from src.apply.profile import load_profile
 from src.output.csv_export import export_csv
@@ -112,6 +114,8 @@ async def scrape_platform(
     companies: list[dict],
     delay: float,
     concurrency: int = 5,
+    cache: BoardCache | None = None,
+    progress: ProgressTracker | None = None,
 ) -> list[RawJob]:
     """Scrape jobs from a single ATS platform across multiple companies.
 
@@ -124,6 +128,8 @@ async def scrape_platform(
         companies: List of company config dicts with platform-specific keys.
         delay: Seconds to wait between requests.
         concurrency: Max concurrent scraping tasks.
+        cache: Optional empty-board cache; boards empty on several consecutive runs are skipped.
+        progress: Optional tracker for the dashboard's live progress bar.
 
     Returns:
         List of RawJob objects from all companies on this platform.
@@ -141,6 +147,22 @@ async def scrape_platform(
     scrapers: list = []
     scrapers_lock = asyncio.Lock()
 
+    skipped = 0
+    if cache:
+        kept = []
+        for c in companies:
+            if cache.should_skip(platform, c):
+                skipped += 1
+            else:
+                kept.append(c)
+        if skipped:
+            logging.getLogger(__name__).info(
+                f"[{platform}] Skipping {skipped} boards that were empty on recent runs (use --full to re-check)"
+            )
+        companies = kept
+    if progress:
+        progress.platform_total(platform, len(companies), skipped)
+
     async def scrape_one(company):
         nonlocal errors
         async with sem:
@@ -149,6 +171,8 @@ async def scrape_platform(
                 scrapers.append(scraper)
             try:
                 jobs = await scraper.fetch_jobs(company)
+                if cache:
+                    cache.record(platform, company, len(jobs))
                 async with lock:
                     all_jobs.extend(jobs)
             except Exception as e:
@@ -167,6 +191,8 @@ async def scrape_platform(
         for fut in asyncio.as_completed([scrape_one(c) for c in companies]):
             await fut
             done += 1
+            if progress:
+                progress.platform_done(platform, done)
             if done % 200 == 0 or done == total:
                 logging.getLogger(__name__).info(
                     f"[{platform}] Progress: {done}/{total} companies scraped"
@@ -178,7 +204,7 @@ async def scrape_platform(
             await asyncio.gather(*cleanup, return_exceptions=True)
 
     logging.getLogger(__name__).info(
-        f"[{platform}] Done: {len(all_jobs)} jobs from {len(companies)} companies ({errors} errors)"
+        f"[{platform}] Done: {len(all_jobs)} jobs from {len(companies)} companies ({errors} errors, {skipped} skipped)"
     )
     return all_jobs
 
@@ -285,12 +311,15 @@ def apply_filters(
     return results
 
 
-async def run(platform_filter: str | None = None, verbose: bool = False):
+async def run(platform_filter: str | None = None, verbose: bool = False,
+              sponsors_only: bool = False, full: bool = False):
     """Main pipeline: scrape -> filter -> H1B enrich -> dedupe -> output.
 
     Args:
         platform_filter: If set, only scrape this single platform.
         verbose: Enable debug logging.
+        sponsors_only: Quick scan — only scrape boards whose company is on the H1B list.
+        full: Ignore the empty-board cache and re-check every board.
     """
     setup_logging(verbose)
     logger = logging.getLogger(__name__)
@@ -311,7 +340,18 @@ async def run(platform_filter: str | None = None, verbose: bool = False):
     db = JobDB(BASE_DIR / settings["output"]["db_path"])
     run_id = db.start_run()
 
-    logger.info("Starting job scraper...")
+    progress = ProgressTracker(BASE_DIR / "data" / "progress.json")
+    cache = BoardCache(
+        BASE_DIR / "data" / "board_cache.json",
+        skip_days=settings["scraping"].get("skip_empty_days", 3),
+        min_empty_runs=settings["scraping"].get("skip_empty_after_runs", 2),
+        enabled=not full,
+    )
+    # A partial run (one platform / sponsors only) must not mark everything else inactive.
+    partial_run = bool(platform_filter) or sponsors_only
+
+    logger.info("Starting job scraper..." + (" (quick scan: H1B sponsors only)" if sponsors_only else ""))
+    progress.stage("scraping")
 
     # Map of platform -> key name expected by each scraper
     PLATFORM_KEY = {
@@ -336,9 +376,15 @@ async def run(platform_filter: str | None = None, verbose: bool = False):
             else:
                 normalized.append(c)
 
+        if sponsors_only:
+            before = len(normalized)
+            normalized = [c for c in normalized
+                          if h1b_lookup.lookup(c.get("name") or "")[0] != "RED"]
+            logger.info(f"[{platform}] Quick scan: {len(normalized)} of {before} boards are H1B sponsors")
+
         logger.info(f"Scraping {platform}: {len(normalized)} companies")
         try:
-            return await scrape_platform(platform, normalized, delay, concurrency)
+            return await scrape_platform(platform, normalized, delay, concurrency, cache, progress)
         except Exception as e:
             error_msg = f"[{platform}] Platform error: {e}"
             logger.error(error_msg)
@@ -357,9 +403,11 @@ async def run(platform_filter: str | None = None, verbose: bool = False):
     for platform_jobs in await asyncio.gather(*(run_platform(p, c) for p, c in todo)):
         all_jobs.extend(platform_jobs)
 
+    cache.save()
     logger.info(f"Total raw jobs fetched: {len(all_jobs)}")
 
     # Apply filters
+    progress.stage("filtering")
     filtered = apply_filters(all_jobs, title_matcher, sponsorship_filter, max_age, db, run_id)
 
     # H1B enrichment — internships get an "NA" flag instead of GREEN/YELLOW/RED,
@@ -380,6 +428,7 @@ async def run(platform_filter: str | None = None, verbose: bool = False):
         logger.info(f"H1B-only mode: dropped {before - len(filtered)} jobs from companies with no H1B record")
 
     # Dedup and store with periodic commits (Finding #6: checkpointing)
+    progress.stage("saving")
     new_count = 0
     seen_keys = set()
     for i, job in enumerate(filtered):
@@ -395,7 +444,7 @@ async def run(platform_filter: str | None = None, verbose: bool = False):
     db.finish_run(run_id, len(all_jobs), len(filtered), new_count, errors)
 
     # Mark jobs not seen in this run as inactive
-    if seen_keys:
+    if seen_keys and not partial_run:
         db.mark_inactive_not_seen(seen_keys)
 
     # Expire old postings
@@ -468,6 +517,7 @@ async def run(platform_filter: str | None = None, verbose: bool = False):
     jobs_for_output = sort_for_output(db.get_all_active_jobs())
     templates_dir = BASE_DIR / "templates"
 
+    progress.stage("rendering")
     dashboard_path = render_dashboard(jobs_for_output, run_stats, output_dir, templates_dir)
     logger.info(f"Dashboard: {dashboard_path}")
 
@@ -479,6 +529,7 @@ async def run(platform_filter: str | None = None, verbose: bool = False):
     logger.info(f"CSV export: {csv_path}")
 
     db.close()
+    progress.finish({"passed": len(filtered), "new": new_count, "companies": total_companies})
     return filtered
 
 
@@ -487,9 +538,18 @@ def main():
     parser = argparse.ArgumentParser(description="Job scraper pipeline")
     parser.add_argument("--platform", help="Only scrape this platform")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    parser.add_argument("--sponsors-only", action="store_true",
+                        help="Quick scan: only scrape boards for companies on your H1B list")
+    parser.add_argument("--full", action="store_true",
+                        help="Re-check every board, including ones that were empty on recent runs")
     args = parser.parse_args()
 
-    asyncio.run(run(platform_filter=args.platform, verbose=args.verbose))
+    try:
+        asyncio.run(run(platform_filter=args.platform, verbose=args.verbose,
+                        sponsors_only=args.sponsors_only, full=args.full))
+    except Exception as e:  # surface the failure in the dashboard, then re-raise
+        ProgressTracker(BASE_DIR / "data" / "progress.json").finish(error=f"{type(e).__name__}: {e}")
+        raise
 
 
 if __name__ == "__main__":

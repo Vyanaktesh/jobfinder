@@ -13,11 +13,19 @@
     {% set intern_count = jobs|selectattr('is_internship')|list|length %}
     <p class="subtitle">Generated {{ generated_at[:16] }} &middot; {{ stats.total_passed }} jobs from {{ stats.total_companies }} companies &middot; {{ stats.total_new }} new this run &middot; {{ jobs|length - intern_count }} full-time &middot; {{ intern_count }} internship{{ 's' if intern_count != 1 else '' }}</p>
     <div class="action-toolbar">
-      <button id="runPipelineBtn" class="toolbar-btn run-btn" title="Trigger a fresh scrape">&#9654; Run Pipeline</button>
+      <button id="quickBtn" class="toolbar-btn run-btn" title="Fastest: only scrape companies on your H1B list">&#9889; Quick scan (H1B companies)</button>
+      <button id="fullBtn" class="toolbar-btn run-btn-alt" title="Scrape every board (skips ones that have been empty recently)">&#9654; Full scan</button>
+      <button id="recheckBtn" class="toolbar-btn" title="Full scan, but re-check boards that were empty on recent runs">&#8635; Re-check all</button>
+      <button id="stopBtn" class="toolbar-btn stop-btn" hidden>&#9632; Stop</button>
       <button id="exportApplied" class="toolbar-btn" title="Download a CSV of jobs you've applied to">&#11015; Export Applied</button>
-      <span id="controlStatus" class="control-status" title="Control-server connection. Start it with: python scripts/control_server.py">&#9679; checking&hellip;</span>
-      <span id="runProgress" class="run-progress"></span>
+      <span id="controlStatus" class="control-status" title="Start the server with: python scripts/control_server.py">&#9679; checking&hellip;</span>
     </div>
+    <div class="run-panel" id="runPanel" hidden>
+      <div class="run-bar"><div class="run-bar-fill" id="runBarFill"></div></div>
+      <div class="run-detail" id="runDetail"></div>
+    </div>
+    <div class="run-banner" id="runBanner" hidden></div>
+    <p class="last-run" id="lastRun"></p>
   </header>
 
   <div class="type-tabs" id="typeTabs">

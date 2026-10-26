@@ -379,92 +379,156 @@
     });
   });
 
-  // --- Control server integration (Run Pipeline + Clean Resumes buttons) ---
-  // A file:// dashboard can't spawn processes; these buttons call a small local
-  // server (scripts/control_server.py) over CORS. Buttons degrade gracefully
-  // when the server isn't running.
-  const CONTROL_BASE = (store.get('jobscraper_control_base', 'http://localhost:8765')).replace(/\/$/, '');
-  const runBtn = document.getElementById('runPipelineBtn');
+  // --- Run buttons: talk to scripts/control_server.py (works from file:// or from the server itself) ---
+  const CONTROL_BASE = location.protocol.startsWith('http')
+    ? ''
+    : String(store.get('jobscraper_control_base', 'http://localhost:8765')).replace(/\/$/, '');
+  const btns = {
+    quick: document.getElementById('quickBtn'),
+    full: document.getElementById('fullBtn'),
+    recheck: document.getElementById('recheckBtn'),
+  };
+  const stopBtn = document.getElementById('stopBtn');
   const controlStatus = document.getElementById('controlStatus');
-  const runProgress = document.getElementById('runProgress');
+  const runPanel = document.getElementById('runPanel');
+  const runBarFill = document.getElementById('runBarFill');
+  const runDetail = document.getElementById('runDetail');
+  const runBanner = document.getElementById('runBanner');
+  const lastRunEl = document.getElementById('lastRun');
   let serverUp = false;
+  let wasRunning = false;
+  let startedHere = false;
+  let pollTimer = null;
+  const pageLoadedAt = Date.now() / 1000;
 
-  // Tidy the raw log line into something readable for the toolbar.
-  function formatProgress(p) {
-    if (!p) return '';
-    // "[ashby] Progress: 1400/3179 companies scraped" -> "Ashby 1400/3179"
-    let m = p.match(/\[(\w+)\]\s*Progress:\s*([\d]+\/[\d]+)/i);
-    if (m) return m[1].charAt(0).toUpperCase() + m[1].slice(1) + ' ' + m[2];
-    m = p.match(/\[(\w+)\]\s*Done:/i);
-    if (m) return m[1].charAt(0).toUpperCase() + m[1].slice(1) + ' done';
-    if (/Passed filters/i.test(p)) return 'Filtering…';
-    if (/Dashboard:/i.test(p)) return 'Writing dashboard…';
-    if (/Scraping (\w+)/i.test(p)) return 'Scraping ' + RegExp.$1;
-    return p.slice(0, 60);
+  const STAGE_LABEL = {
+    starting: 'Starting…', scraping: 'Scraping job boards', filtering: 'Filtering jobs',
+    saving: 'Saving to database', rendering: 'Building dashboard', done: 'Finished',
+    error: 'Failed', stopped: 'Stopped',
+  };
+  const cap = w => w.charAt(0).toUpperCase() + w.slice(1);
+  const fmtTime = secs => `${Math.floor(secs / 60)}:${String(Math.floor(secs % 60)).padStart(2, '0')}`;
+
+  function setControlStatus(up) {
+    serverUp = up;
+    if (controlStatus) {
+      controlStatus.innerHTML = up ? '● connected' : '● server offline';
+      controlStatus.className = 'control-status ' + (up ? 'up' : 'down');
+      controlStatus.title = up ? 'Control server connected' : 'Start it: python scripts/control_server.py';
+    }
   }
 
-  function setControlStatus(up, detail) {
-    serverUp = up;
-    if (!controlStatus) return;
-    if (up) {
-      controlStatus.innerHTML = '● connected';
-      controlStatus.className = 'control-status up';
-      controlStatus.title = detail || 'Control server connected';
-    } else {
-      controlStatus.innerHTML = '● offline';
-      controlStatus.className = 'control-status down';
-      controlStatus.title = 'Start it: python scripts/control_server.py';
+  function renderStatus(s) {
+    setControlStatus(true);
+    Object.values(btns).forEach(b => { if (b) b.disabled = s.running; });
+    if (stopBtn) stopBtn.hidden = !s.running;
+
+    if (s.last_run && lastRunEl && !s.running) {
+      const fin = (s.last_run.finished_at || '').replace('T', ' ').slice(0, 16);
+      lastRunEl.textContent = `Last scan: ${fin} · ${s.last_run.total_passed} jobs matched · ${s.last_run.total_new} new`;
     }
-    if (runBtn) runBtn.disabled = !up;
+
+    if (s.running) {
+      runBanner.hidden = true;
+      runPanel.hidden = false;
+      runBarFill.style.width = (s.percent || 2) + '%';
+      const plats = Object.entries(s.platforms || {})
+        .filter(([, p]) => p.total > 0)
+        .map(([n, p]) => `${cap(n)} ${p.done.toLocaleString()}/${p.total.toLocaleString()}`).join(' · ');
+      let elapsed = '';
+      if (s.started_at && s.server_time) {
+        elapsed = ' · ' + fmtTime((Date.parse(s.server_time) - Date.parse(s.started_at)) / 1000) + ' elapsed';
+      }
+      runDetail.textContent = `${STAGE_LABEL[s.stage] || 'Working…'} — ${s.percent || 0}%${elapsed}` + (plats ? `\n${plats}` : '');
+    } else {
+      runPanel.hidden = true;
+    }
+
+    if (wasRunning && !s.running) {
+      if (s.stage === 'done') {
+        const r = s.result || {};
+        showBanner('ok', `✓ Scan finished — ${r.passed ?? '?'} jobs matched, ${r.new ?? 0} new.`, true);
+        if (startedHere) setTimeout(() => location.reload(), 2500);
+      } else if (s.stage === 'error') {
+        showBanner('err', `✗ Scan failed: ${s.message || 'see logs/run.log'}`, false);
+      } else if (s.stage === 'stopped') {
+        showBanner('warn', 'Scan stopped.', false);
+      }
+      startedHere = false;
+    }
+    wasRunning = s.running;
+
+    // Someone else (another tab / terminal) refreshed the results while this page is open
+    if (!s.running && s.dashboard_mtime > pageLoadedAt + 5 && !startedHere && runBanner.hidden) {
+      showBanner('ok', 'Newer results are available.', true);
+    }
+  }
+
+  function showBanner(kind, text, withReload) {
+    runBanner.className = 'run-banner ' + kind;
+    runBanner.textContent = text + ' ';
+    if (withReload) {
+      const b = document.createElement('button');
+      b.className = 'toolbar-btn';
+      b.textContent = 'Reload results';
+      b.onclick = () => location.reload();
+      runBanner.appendChild(b);
+    }
+    runBanner.hidden = false;
   }
 
   async function pingControl() {
+    let delay = 10000;
     try {
-      const r = await fetch(CONTROL_BASE + '/status', { method: 'GET' });
+      const r = await fetch(CONTROL_BASE + '/status', { cache: 'no-store' });
       if (!r.ok) throw new Error('bad status');
       const s = await r.json();
-      let detail = s.running ? 'Pipeline RUNNING' : 'Idle';
-      if (s.progress) detail += ' — ' + s.progress;
-      if (s.apply_count != null) detail += ` (${s.apply_count} H1B-friendly jobs)`;
-      setControlStatus(true, detail);
-      if (runBtn) {
-        runBtn.textContent = s.running ? '⏳ Running…' : '▶ Run Pipeline';
-        runBtn.disabled = s.running;
-      }
-      if (runProgress) {
-        if (s.running) {
-          const label = formatProgress(s.progress);
-          runProgress.textContent = label ? '↻ ' + label : '↻ working…';
-          runProgress.classList.add('active');
-        } else {
-          runProgress.textContent = '';
-          runProgress.classList.remove('active');
-        }
-      }
+      renderStatus(s);
+      if (s.running) delay = 2000;
     } catch {
       setControlStatus(false);
-      if (runProgress) { runProgress.textContent = ''; runProgress.classList.remove('active'); }
+      Object.values(btns).forEach(b => { if (b) b.disabled = true; });
+      if (stopBtn) stopBtn.hidden = true;
+      runPanel.hidden = true;
+    }
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(pingControl, delay);
+  }
+
+  async function post(path, body) {
+    try {
+      const r = await fetch(CONTROL_BASE + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      });
+      return await r.json();
+    } catch {
+      return { ok: false, message: 'Could not reach the server. Start it: python scripts/control_server.py' };
     }
   }
 
-  if (runBtn) {
-    runBtn.addEventListener('click', async () => {
-      if (!serverUp) { showToast('Control server offline. Run: python scripts/control_server.py', 4000); return; }
-      runBtn.disabled = true;
-      try {
-        const r = await fetch(CONTROL_BASE + '/run', { method: 'POST' });
-        const d = await r.json();
-        showToast(d.message || (d.ok ? 'Pipeline started' : 'Could not start'), 4000);
-      } catch {
-        showToast('Failed to reach control server.', 3000);
-      }
-      setTimeout(pingControl, 1500);
+  Object.entries(btns).forEach(([mode, btn]) => {
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      if (!serverUp) { showToast('Server offline. Run: python scripts/control_server.py', 4000); return; }
+      const d = await post('/run', { mode });
+      showToast(d.message || (d.ok ? 'Started' : 'Could not start'), 3500);
+      if (d.ok) { startedHere = true; runBanner.hidden = true; }
+      pingControl();
+    });
+  });
+
+  if (stopBtn) {
+    stopBtn.addEventListener('click', async () => {
+      if (!confirm('Stop the running scan? Nothing is saved from a scan that has not finished.')) return;
+      const d = await post('/stop');
+      showToast(d.message || 'Stopped', 3000);
+      pingControl();
     });
   }
 
-  // Poll the control server: once now, then every 10s.
   pingControl();
-  setInterval(pingControl, 10000);
 
   // Initial sort + filter (uses restored state or defaults)
   document.querySelectorAll('th.sortable').forEach(h => {

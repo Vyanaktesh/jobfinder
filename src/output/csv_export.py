@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import csv
-from datetime import datetime
 from pathlib import Path
 
 COLUMNS = [
@@ -14,7 +13,7 @@ COLUMNS = [
 def export_csv(jobs: list[dict], output_dir: Path) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / f"jobs_{datetime.now():%Y%m%d_%H%M}.csv"
+    path = output_dir / "latest.csv"
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
         w.writeheader()
