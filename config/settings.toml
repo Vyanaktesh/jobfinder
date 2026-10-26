@@ -4,6 +4,8 @@ html_delay_seconds = 1.0
 max_retries = 2
 timeout_seconds = 15
 max_concurrent_per_platform = 25
+skip_empty_days = 3        # skip boards that were empty on recent runs for this many days
+skip_empty_after_runs = 2  # ...but only after this many consecutive empty checks
 
 [filtering]
 max_post_age_days = 7

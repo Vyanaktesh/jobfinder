@@ -35,25 +35,28 @@ python -m src.main --platform greenhouse    # Single platform only
 
 Open `output/latest.html` in a browser to view the dashboard.
 
-## Dashboard control server (optional)
+## Running it from the dashboard (recommended)
 
-The dashboard is a static file, so its **Run Pipeline** button needs a tiny local helper to act. Start it and leave it
-running:
+Start the dashboard server — **double-click `start_dashboard.bat`** (Windows) or run
+`python scripts/control_server.py` — and your browser opens the dashboard. Use the buttons at the top:
 
-```bash
-python scripts/control_server.py    # listens on http://localhost:8765
-```
+| Button | What it does |
+|---|---|
+| ⚡ **Quick scan (H1B companies)** | Only scrapes companies on your H1B list. Much faster — minutes instead of hours. |
+| ▶ **Full scan** | Scrapes every board, but skips boards that were empty on the last few runs. |
+| ↻ **Re-check all** | Full scan that also re-checks the skipped empty boards (do this about weekly). |
+| ■ **Stop** | Stops a running scan (a scan that hasn't finished saves nothing). |
 
-- **▶ Run Pipeline** — triggers a fresh scrape (via the
-  `com.devansh.jobscraper` launchd job, so it survives terminal exit).
+A progress bar shows each platform's progress, and the page reloads with the new results when the scan
+finishes. Command-line equivalents: `python -m src.main [--sponsors-only] [--full] [--platform NAME]`.
 
-The buttons show a connection indicator and degrade gracefully when the server
-isn't running.
+A quick scan never hides jobs from earlier scans: partial runs don't mark the rest as inactive.
+Tune the empty-board skipping in `config/settings.toml` (`skip_empty_days`, `skip_empty_after_runs`).
 
 > **Note on privacy:** `config/applicant_profile.yml`, `config/profile.yml`,
 > `config/master_resume.yml`, the SQLite DB, and everything under `output/`
 > (which embeds your contact details) are gitignored. Only `.example.yml`
-> templates are tracked.
+> templates are tracked. The server only listens on `127.0.0.1` and never serves the autofill script.
 
 ## Data Sources
 
