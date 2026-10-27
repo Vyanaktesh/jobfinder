@@ -518,7 +518,8 @@ async def run(platform_filter: str | None = None, verbose: bool = False,
     templates_dir = BASE_DIR / "templates"
 
     progress.stage("rendering")
-    dashboard_path = render_dashboard(jobs_for_output, run_stats, output_dir, templates_dir)
+    dashboard_path = render_dashboard(jobs_for_output, run_stats, output_dir, templates_dir,
+                                      applications=db.get_applications())
     logger.info(f"Dashboard: {dashboard_path}")
 
     digest_path = render_digest(jobs_for_output, run_stats, output_dir)

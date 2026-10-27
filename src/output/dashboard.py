@@ -9,7 +9,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 # Fields the dashboard JS needs; keeps the embedded JSON small (no descriptions).
 _JSON_FIELDS = (
-    "id", "company_name", "title", "location_parsed", "matched_lane", "apply_url",
+    "id", "dedup_key", "company_name", "title", "location_parsed", "matched_lane", "apply_url",
     "sponsorship_flag", "h1b_count",
 )
 
@@ -36,7 +36,8 @@ def _is_recent(first_seen: str | None, hours: int = 36) -> bool:
     return (datetime.now() - seen).total_seconds() < hours * 3600
 
 
-def render_dashboard(jobs: list[dict], stats: dict, output_dir: Path, templates_dir: Path) -> Path:
+def render_dashboard(jobs: list[dict], stats: dict, output_dir: Path, templates_dir: Path,
+                     applications: list[dict] | None = None) -> Path:
     output_dir = Path(output_dir)
     templates_dir = Path(templates_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -64,6 +65,7 @@ def render_dashboard(jobs: list[dict], stats: dict, output_dir: Path, templates_
         lanes_sorted=sorted({j["matched_lane"] for j in jobs if j["matched_lane"]}),
         platforms_sorted=sorted({j["source_platform"] for j in jobs if j.get("source_platform")}),
         jobs_json=jobs_json,
+        applications_json=json.dumps(applications or []).replace("</", "<\\/"),
         autofill_js=autofill_js,
         inline_css=css,
         inline_js=js.replace("</script", "<\\/script"),

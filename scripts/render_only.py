@@ -25,6 +25,7 @@ def main():
         settings = tomllib.load(f)
     db = JobDB(ROOT / settings["output"]["db_path"])
     jobs = sort_for_output(db.get_all_active_jobs())
+    applications = db.get_applications()
     db.close()
 
     output_dir = ROOT / settings["output"]["dashboard_dir"]
@@ -34,7 +35,7 @@ def main():
         "total_new": 0,
         "total_companies": len({j["company_name"] for j in jobs}),
     }
-    print(f"Dashboard: {render_dashboard(jobs, stats, output_dir, ROOT / 'templates')}")
+    print(f"Dashboard: {render_dashboard(jobs, stats, output_dir, ROOT / 'templates', applications)}")
     print(f"Digest:    {render_digest(jobs, stats, output_dir)}")
     print(f"CSV:       {export_csv(jobs, output_dir)}")
     print(f"\n{len(jobs)} jobs. Open {output_dir / 'latest.html'}")

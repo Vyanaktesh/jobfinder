@@ -92,7 +92,47 @@ CREATE TABLE IF NOT EXISTS job_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_job_history_job ON job_history(job_id);
+
+-- Application tracker. Keyed by the job's dedup_key (stable across scrapes) and
+-- carries a snapshot of the posting so it stays readable after the job expires.
+CREATE TABLE IF NOT EXISTS applications (
+    job_key          TEXT PRIMARY KEY,
+    status           TEXT NOT NULL,
+    notes            TEXT NOT NULL DEFAULT '',
+    applied_at       TEXT,
+    updated_at       TEXT NOT NULL,
+    company          TEXT,
+    title            TEXT,
+    location         TEXT,
+    apply_url        TEXT,
+    sponsorship_flag TEXT,
+    h1b_count        INTEGER
+);
 """
+
+APPLICATION_STATUSES = ("none", "saved", "applied", "interviewing", "offer", "rejected", "withdrawn")
+_APP_TEXT_LIMITS = {"notes": 5000, "company": 200, "title": 300, "location": 300,
+                    "apply_url": 2000, "sponsorship_flag": 10, "applied_at": 40}
+
+
+def clean_application(raw: dict) -> dict | None:
+    """Validate/trim an application record from the dashboard. Returns None if unusable."""
+    if not isinstance(raw, dict):
+        return None
+    key = str(raw.get("job_key") or "").strip()
+    status = str(raw.get("status") or "").strip().lower()
+    if not key or len(key) > 100 or status not in APPLICATION_STATUSES:
+        return None
+    rec = {"job_key": key, "status": status}
+    for field, limit in _APP_TEXT_LIMITS.items():
+        v = raw.get(field)
+        rec[field] = ("" if v is None else str(v))[:limit]
+    rec["updated_at"] = str(raw.get("updated_at") or "")[:40] or datetime.now().isoformat(timespec="seconds")
+    try:
+        rec["h1b_count"] = int(raw["h1b_count"]) if raw.get("h1b_count") is not None else None
+    except (TypeError, ValueError):
+        rec["h1b_count"] = None
+    return rec
 
 # Max retries for database operations when locked
 DB_RETRY_ATTEMPTS = 5
@@ -287,6 +327,36 @@ class JobDB:
             "SELECT * FROM jobs WHERE is_active = 1 ORDER BY first_seen_at DESC"
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_applications(self) -> list[dict]:
+        """All tracked applications (status other than 'none' included for sync), newest update first."""
+        rows = self.conn.execute("SELECT * FROM applications ORDER BY updated_at DESC").fetchall()
+        return [dict(r) for r in rows]
+
+    def upsert_applications(self, records: list[dict]) -> int:
+        """Insert/update applications; the newest `updated_at` wins. Returns rows written."""
+        written = 0
+        for raw in records:
+            rec = clean_application(raw)
+            if not rec:
+                continue
+            cur = self.conn.execute("SELECT updated_at FROM applications WHERE job_key=?", (rec["job_key"],)).fetchone()
+            if cur and cur["updated_at"] > rec["updated_at"]:
+                continue  # stored version is newer
+            self.conn.execute(
+                """INSERT INTO applications (job_key, status, notes, applied_at, updated_at, company, title,
+                       location, apply_url, sponsorship_flag, h1b_count)
+                   VALUES (:job_key, :status, :notes, :applied_at, :updated_at, :company, :title,
+                       :location, :apply_url, :sponsorship_flag, :h1b_count)
+                   ON CONFLICT(job_key) DO UPDATE SET status=excluded.status, notes=excluded.notes,
+                       applied_at=excluded.applied_at, updated_at=excluded.updated_at, company=excluded.company,
+                       title=excluded.title, location=excluded.location, apply_url=excluded.apply_url,
+                       sponsorship_flag=excluded.sponsorship_flag, h1b_count=excluded.h1b_count""",
+                rec,
+            )
+            written += 1
+        self.conn.commit()
+        return written
 
     def get_platform_progress(self, run_id: int, platform: str) -> int:
         """Get checkpoint count for resume capability (Finding #6)."""
