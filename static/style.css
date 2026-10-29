@@ -577,3 +577,7 @@ tr.job-row[data-status="rejected"] .status-select, tr.job-row[data-status="withd
 .tracker-notes { width: 100%; min-width: 220px; min-height: 30px; background: #0d1117; color: #e1e4e8; border: 1px solid #30363d; border-radius: 6px; padding: 5px 8px; font: inherit; font-size: 13px; resize: vertical; }
 .tracker-notes:focus { outline: none; border-color: #58a6ff; }
 .badge-followup { background: #9a6700; color: #fff; }
+
+.offline-hint { margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 13px; background: rgba(210,153,34,.12); color: #d29922; max-width: 760px; }
+.offline-hint code { background: #21262d; padding: 1px 6px; border-radius: 4px; color: #e1e4e8; }
+.toolbar-btn.offline { opacity: .75; }

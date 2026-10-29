@@ -609,8 +609,11 @@
     if (controlStatus) {
       controlStatus.innerHTML = up ? '● connected' : '● server offline';
       controlStatus.className = 'control-status ' + (up ? 'up' : 'down');
-      controlStatus.title = up ? 'Control server connected' : 'Start it: python scripts/control_server.py';
+      controlStatus.title = up ? 'Control server connected' : 'Start it: .\\start_dashboard.bat';
     }
+    const hint = document.getElementById('offlineHint');
+    if (hint) hint.hidden = up;
+    Object.values(btns).forEach(b => { if (b) b.classList.toggle('offline', !up); });
   }
 
   function renderStatus(s) {
@@ -684,7 +687,7 @@
     } catch {
       setControlStatus(false);
       synced = false;
-      Object.values(btns).forEach(b => { if (b) b.disabled = true; });
+      Object.values(btns).forEach(b => { if (b) b.disabled = false; });  // stay clickable: clicking explains how to start the server
       if (stopBtn) stopBtn.hidden = true;
       runPanel.hidden = true;
     }
@@ -708,7 +711,11 @@
   Object.entries(btns).forEach(([mode, btn]) => {
     if (!btn) return;
     btn.addEventListener('click', async () => {
-      if (!serverUp) { showToast('Server offline. Run: python scripts/control_server.py', 4000); return; }
+      if (!serverUp) {
+        showBanner('warn', 'The dashboard server is not running. Start it with .\\start_dashboard.bat, then use the page it opens (http://localhost:8765).', false);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
       const d = await post('/run', { mode });
       showToast(d.message || (d.ok ? 'Started' : 'Could not start'), 3500);
       if (d.ok) { startedHere = true; runBanner.hidden = true; }
