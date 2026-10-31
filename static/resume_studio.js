@@ -46,23 +46,43 @@
   }
 
   // ---- loading ----
+  function setNote(text, warn) {
+    el.note.className = 'studio-note' + (warn ? ' warn' : '');
+    el.note.textContent = text;
+  }
+
   async function loadBases() {
     const d = await api('/api/resumes');
     if (d._offline) { setOnline(false); return; }
+    if (!Array.isArray(d.bases)) {
+      // The server answered but does not know Resume Studio: it is still the old process.
+      setOnline(false);
+      setNote('The dashboard server is running older code and does not have Resume Studio yet. Close its window '
+            + '(or press Ctrl+C in it) and start it again with .\\start_dashboard.bat, then reload this page.', true);
+      return;
+    }
     setOnline(true);
     const keep = el.base.value;
     el.base.textContent = '';
-    (d.bases || []).forEach(b => {
+    d.bases.forEach(b => {
       const o = document.createElement('option');
       o.value = b.id; o.textContent = b.id.replace(/_/g, ' ');
       el.base.appendChild(o);
     });
-    if (keep && (d.bases || []).some(b => b.id === keep)) el.base.value = keep;
+    if (keep && d.bases.some(b => b.id === keep)) el.base.value = keep;
+
     const msgs = [];
-    if (d.using_sample) msgs.push('Showing the SAMPLE resume. Load yours with: python scripts/import_resume_kit.py <path to resume_kit>.');
-    if (!d.latex) msgs.push('No LaTeX compiler found: builds will save the .tex only (open it in Overleaf, or install MiKTeX / TeX Live).');
-    el.note.className = 'studio-note' + (msgs.length ? ' warn' : '');
-    el.note.textContent = msgs.join(' ');
+    if (d.bases.length === 0) {
+      msgs.push(`No base resumes found in ${d.data_dir}.`);
+      (d.problems || []).forEach(p => msgs.push(p));
+      msgs.push('Load yours with: python scripts/import_resume_kit.py <resume_kit folder or .zip>');
+      [el.validate, el.build].forEach(b => { b.disabled = true; });
+    }
+    if (d.using_sample) msgs.push('Showing the SAMPLE resume, not yours. Load yours with: python scripts/import_resume_kit.py <resume_kit folder or .zip> '
+                                + '(or drop the resume_kit folder into the repo folder and restart the server).');
+    else if (d.bases.length && (d.problems || []).length) (d.problems || []).forEach(p => msgs.push('Skipped: ' + p));
+    if (d.latex === null) msgs.push('No LaTeX compiler found: builds will save the .tex only (open it in Overleaf, or install MiKTeX / TeX Live).');
+    setNote(msgs.join(' '), msgs.length > 0);
     state.loaded = true;
     await ensureBase(el.base.value);
   }
@@ -291,4 +311,8 @@
       el.patch.focus();
     },
   };
+
+  // The dashboard remembers the last tab, so a reload can open directly on this panel before this
+  // script has loaded (and so before the tab click that normally starts it). Start it now.
+  if (!view.hidden) window.ResumeStudio.onShow();
 })();

@@ -369,3 +369,89 @@ def test_job_lookup_for_tailor_button(server, tmp_path):
     job = json.loads(call(server + "/api/job?key=k1")[1])["job"]
     assert job["company"] == "Acme" and "pipelines" in job["description"]
     assert call(server + "/api/job?key=nope")[0] == 404
+
+
+# ---------------------------------------------------------------- importer / diagnostics
+def make_kit(root, bank=True, bases=("AI_Engineer",), profile=True):
+    (root / "data").mkdir(parents=True)
+    if profile:
+        (root / "data" / "profile.json").write_text((paths.SAMPLE_DIR / "profile.json").read_text())
+    for b in bases:
+        (root / "data" / f"{b}.json").write_text((paths.SAMPLE_DIR / "Sample_Engineer.json").read_text())
+    if bank:
+        (root / "BULLET_BANK.md").write_text((paths.SAMPLE_DIR / "BULLET_BANK.md").read_text())
+    return root
+
+
+def test_import_from_folder_and_zip(tmp_path):
+    import zipfile
+    from src.resume_studio.importer import import_kit
+    kit = make_kit(tmp_path / "resume_kit", bases=("AI_Engineer", "Data_Engineer"))
+    copied, skipped = import_kit(kit, tmp_path / "dest1")
+    assert sorted(copied) == ["AI_Engineer.json", "BULLET_BANK.md", "Data_Engineer.json", "profile.json"] and not skipped
+    assert import_kit(kit, tmp_path / "dest1")[1]                      # second run skips (no --force)
+    assert not import_kit(kit, tmp_path / "dest1", force=True)[1]
+    z = tmp_path / "resume_kit.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in kit.rglob("*"):
+            if f.is_file():
+                zf.write(f, "resume_kit/" + f.relative_to(kit).as_posix())
+    copied, _ = import_kit(z, tmp_path / "dest2")
+    assert "profile.json" in copied and "BULLET_BANK.md" in copied
+
+
+def test_import_rejects_bad_kits(tmp_path):
+    from src.resume_studio.importer import import_kit
+    for kwargs in ({"bank": False}, {"profile": False}, {"bases": ()}):
+        with pytest.raises(ValueError):
+            import_kit(make_kit(tmp_path / f"k{len(list(tmp_path.iterdir()))}", **kwargs), tmp_path / "d")
+    assert not (tmp_path / "d").exists()                                # nothing written on failure
+    bad = make_kit(tmp_path / "bad")
+    (bad / "data" / "AI_Engineer.json").write_text("{oops")
+    with pytest.raises(ValueError, match="not valid JSON"):
+        import_kit(bad, tmp_path / "d2")
+
+
+def test_zip_cannot_write_outside_the_destination(tmp_path):
+    import zipfile
+    from src.resume_studio.importer import import_kit
+    z = tmp_path / "evil.zip"
+    good = (paths.SAMPLE_DIR / "profile.json").read_text()
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("resume_kit/data/profile.json", good)
+        zf.writestr("resume_kit/data/AI_Engineer.json", (paths.SAMPLE_DIR / "Sample_Engineer.json").read_text())
+        zf.writestr("resume_kit/BULLET_BANK.md", "x")
+        zf.writestr("resume_kit/data/../../../evil.json", "{}")
+        zf.writestr("../evil2.json", "{}")
+    dest = tmp_path / "dest"
+    import_kit(z, dest)
+    assert sorted(p.name for p in dest.iterdir()) == ["AI_Engineer.json", "BULLET_BANK.md", "profile.json"]
+    assert not (tmp_path / "evil.json").exists() and not (tmp_path.parent / "evil2.json").exists()
+
+
+def test_json_with_a_bom_still_loads(tmp_path, monkeypatch):
+    d = tmp_path / "data"
+    d.mkdir()
+    for name in ("profile.json", "Sample_Engineer.json"):
+        (d / name).write_bytes(b"\xef\xbb\xbf" + (paths.SAMPLE_DIR / name).read_bytes())    # what Notepad can produce
+    monkeypatch.setenv("RESUME_STUDIO_DATA", str(d))
+    assert [b["id"] for b in render.list_bases()] == ["Sample_Engineer"]
+    assert render.render_tex("Sample_Engineer")[0].startswith("%")
+
+
+def test_unusable_files_are_reported_not_hidden(tmp_path):
+    d = tmp_path / "data"
+    d.mkdir()
+    (d / "profile.json").write_text((paths.SAMPLE_DIR / "profile.json").read_text())
+    (d / "Broken.json").write_text("{nope")
+    (d / "Thin.json").write_text('{"tagline": "x"}')
+    (d / "bad name.json").write_text("{}")
+    bases, problems = render.scan_bases(d)
+    assert bases == [] and len(problems) == 3
+    assert any("Broken.json" in p and "not valid JSON" in p for p in problems)
+    assert any("Thin.json" in p and "missing" in p for p in problems)
+
+
+def test_api_reports_folder_and_problems(server):
+    d = json.loads(call(server + "/api/resumes")[1])
+    assert d["data_dir"] == str(paths.SAMPLE_DIR) and d["problems"] == [] and "bases" in d

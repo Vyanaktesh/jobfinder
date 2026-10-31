@@ -244,10 +244,26 @@ def save_applications(records: list) -> int:
         db.close()
 
 
+def dashboard_is_stale() -> bool:
+    """True if output/latest.html is missing or older than the code that generates it.
+
+    The dashboard is a generated file with the template, CSS and JS baked in, so pulling new
+    code does nothing for a page that already exists until it is rebuilt.
+    """
+    page = OUTPUT_DIR / "latest.html"
+    if not page.exists():
+        return True
+    built = page.stat().st_mtime
+    sources = [PROJECT_DIR / "templates" / "dashboard.html", *(PROJECT_DIR / "static").glob("*"),
+               PROJECT_DIR / "src" / "output" / "dashboard.py"]
+    return any(f.is_file() and f.stat().st_mtime > built for f in sources)
+
+
 def ensure_dashboard():
-    """Build output/latest.html from the DB if it doesn't exist yet."""
-    if (OUTPUT_DIR / "latest.html").exists() or not DB_FILE.exists():
+    """(Re)build output/latest.html from the database when it is missing or out of date."""
+    if not DB_FILE.exists() or not dashboard_is_stale():
         return
+    print("Rebuilding the dashboard page with the latest code...")
     try:
         subprocess.run([sys.executable, str(PROJECT_DIR / "scripts" / "render_only.py")],
                        cwd=PROJECT_DIR, capture_output=True, timeout=120)
@@ -359,8 +375,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/resumes":
             latex = find_latex()
-            return self._json(200, {"bases": rs_render.list_bases(), "using_sample": rs_paths.using_sample(),
-                                    "latex": latex[0] if latex else None})
+            bases, problems = rs_render.scan_bases()
+            return self._json(200, {"bases": bases, "problems": problems, "using_sample": rs_paths.using_sample(),
+                                    "data_dir": str(rs_paths.data_dir()), "latex": latex[0] if latex else None})
         if path == "/api/resumes/history":
             return self._json(200, {"history": _with_db(lambda db: db.list_tailored_resumes())})
         m = RESUME_FILE_RE.match(path)
@@ -438,6 +455,13 @@ def main():
     ap.add_argument("--port", type=int, default=PORT)
     args = ap.parse_args()
 
+    try:
+        from src.resume_studio.importer import auto_import
+        imported = auto_import()
+        if imported:
+            print(f"Resume Studio: imported your resume_kit ({len(imported)} files) into config/resume_studio/")
+    except Exception as e:  # noqa: BLE001  (never block the dashboard over this)
+        print(f"Resume Studio: could not import resume_kit: {e}")
     ensure_dashboard()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://localhost:{args.port}"

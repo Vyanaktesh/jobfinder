@@ -44,3 +44,7 @@ data/jobs.db-wal
 
 # Resume Studio personal data (contact details, client facts). The repo is public.
 config/resume_studio/
+
+# A resume_kit dropped into the repo folder holds personal data: never commit it.
+resume_kit/
+resume_kit*.zip
