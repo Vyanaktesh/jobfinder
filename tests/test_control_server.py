@@ -23,3 +23,24 @@ def test_run_command_modes(monkeypatch):
 def test_unknown_mode_rejected():
     ok, _ = cs.start_run("bogus")
     assert not ok
+
+
+def test_dashboard_staleness(tmp_path, monkeypatch):
+    import os
+    import time
+    (tmp_path / "templates").mkdir()
+    (tmp_path / "static").mkdir()
+    (tmp_path / "output").mkdir()
+    tpl = tmp_path / "templates" / "dashboard.html"
+    tpl.write_text("t")
+    monkeypatch.setattr(cs, "PROJECT_DIR", tmp_path)
+    monkeypatch.setattr(cs, "OUTPUT_DIR", tmp_path / "output")
+    assert cs.dashboard_is_stale()                       # no page yet
+    page = tmp_path / "output" / "latest.html"
+    page.write_text("p")
+    now = time.time()
+    os.utime(tpl, (now - 100, now - 100))
+    os.utime(page, (now, now))
+    assert not cs.dashboard_is_stale()                   # page newer than the code
+    os.utime(tpl, (now + 100, now + 100))
+    assert cs.dashboard_is_stale()                       # code newer than the page

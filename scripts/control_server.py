@@ -244,10 +244,26 @@ def save_applications(records: list) -> int:
         db.close()
 
 
+def dashboard_is_stale() -> bool:
+    """True if output/latest.html is missing or older than the code that generates it.
+
+    The dashboard is a generated file with the template, CSS and JS baked in, so pulling new
+    code does nothing for a page that already exists until it is rebuilt.
+    """
+    page = OUTPUT_DIR / "latest.html"
+    if not page.exists():
+        return True
+    built = page.stat().st_mtime
+    sources = [PROJECT_DIR / "templates" / "dashboard.html", *(PROJECT_DIR / "static").glob("*"),
+               PROJECT_DIR / "src" / "output" / "dashboard.py"]
+    return any(f.is_file() and f.stat().st_mtime > built for f in sources)
+
+
 def ensure_dashboard():
-    """Build output/latest.html from the DB if it doesn't exist yet."""
-    if (OUTPUT_DIR / "latest.html").exists() or not DB_FILE.exists():
+    """(Re)build output/latest.html from the database when it is missing or out of date."""
+    if not DB_FILE.exists() or not dashboard_is_stale():
         return
+    print("Rebuilding the dashboard page with the latest code...")
     try:
         subprocess.run([sys.executable, str(PROJECT_DIR / "scripts" / "render_only.py")],
                        cwd=PROJECT_DIR, capture_output=True, timeout=120)
