@@ -1,0 +1,53 @@
+{
+  "id": "Sample_Engineer",
+  "pdf_title": "Jordan Sample Engineer Resume",
+  "tagline": "Software Engineer | APIs, Data Pipelines, Testing | Python, SQL, AWS",
+  "skills": [
+    {"label": "Languages", "items": "Python, SQL, TypeScript"},
+    {"label": "Backend", "items": "FastAPI, REST APIs, PostgreSQL, Redis"},
+    {"label": "Cloud and Tools", "items": "AWS (EC2, S3), Docker, GitHub Actions"}
+  ],
+  "experience": [
+    {
+      "title": "Software Engineering Intern", "date": "Jun. 2025 to Present",
+      "org": "Example Corp", "loc": "Springfield, USA",
+      "bullets": [
+        "Automated weekly reporting for **12** teams with a Python service: **40** reports in **2 minutes** instead of a manual afternoon.",
+        "Cut API response time **30%** by adding Redis caching to **15** FastAPI endpoints.",
+        "Wrote **120** automated tests that raised coverage from **55%** to **85%**.",
+        "Documented the service for **8** engineers and ran a demo that shipped it to production."
+      ]
+    },
+    {
+      "title": "Teaching Assistant", "date": "Aug. 2024 to May 2025",
+      "org": "Example State University", "loc": "Springfield, USA",
+      "bullets": [
+        "Supported **150** students in a databases course with weekly SQL labs.",
+        "Graded **300** assignments and gave written feedback within **48 hours**."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Pipeline Monitor", "stack": "Python, PostgreSQL, Docker", "tag": "Personal",
+      "bullets": [
+        "Built a dashboard that tracks **20** data pipelines and flags failures within **5 minutes**.",
+        "Added alert rules and a runbook so on-call engineers fix issues faster."
+      ]
+    },
+    {
+      "name": "Notes API", "stack": "FastAPI, Redis, AWS", "tag": "",
+      "bullets": [
+        "Shipped a REST API serving **500** requests per minute on a single small server.",
+        "Secured the API with token auth and rate limits."
+      ]
+    },
+    {
+      "name": "Budget Tracker", "stack": "TypeScript, React", "tag": "",
+      "bullets": [
+        "Launched a budgeting app used by **30** friends and family members.",
+        "Stored all data in the browser so nothing leaves the device."
+      ]
+    }
+  ]
+}

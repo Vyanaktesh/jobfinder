@@ -68,7 +68,7 @@
   function setActiveTab(type) {
     typeFilter = type;
     typeTabs.forEach(t => t.classList.toggle('active', t.dataset.type === type));
-    showTrackerView(type === 'tracker');
+    showTrackerView(type === 'tracker', type === 'studio');
   }
 
   function applyFilters() {
@@ -361,13 +361,18 @@
 
   function fmtDate(iso) { return iso ? iso.slice(0, 10) : ''; }
 
-  function showTrackerView(on) {
+  const studioView = document.getElementById('studioView');
+
+  // Tabs 'tracker' and 'studio' replace the job list with their own panel.
+  function showTrackerView(on, studio) {
     ['.controls', '#jobTable', '#emptyState'].forEach(sel => {
       const el = document.querySelector(sel);
-      if (el) el.hidden = on;
+      if (el) el.hidden = on || !!studio;
     });
     if (trackerView) trackerView.hidden = !on;
+    if (studioView) studioView.hidden = !studio;
     if (on && trackerReady) renderTracker();
+    if (studio && window.ResumeStudio) window.ResumeStudio.onShow();
   }
 
   function renderTracker() {
@@ -458,7 +463,17 @@
     ta.value = a.notes || '';
     ta.onchange = () => setNotes(a.job_key, ta.value);
     cell(ta);
-    cell('');
+    const tailor = document.createElement('button');
+    tailor.type = 'button';
+    tailor.className = 'toolbar-btn tailor-btn';
+    tailor.textContent = 'Tailor resume';
+    tailor.title = 'Open Resume Studio for this job';
+    tailor.onclick = () => {
+      setActiveTab('studio');
+      applyFilters();
+      if (window.ResumeStudio) window.ResumeStudio.openFor({ company: a.company, role: a.title, key: a.job_key });
+    };
+    cell(tailor);
     return tr;
   }
 
@@ -609,8 +624,11 @@
     if (controlStatus) {
       controlStatus.innerHTML = up ? '● connected' : '● server offline';
       controlStatus.className = 'control-status ' + (up ? 'up' : 'down');
-      controlStatus.title = up ? 'Control server connected' : 'Start it: python scripts/control_server.py';
+      controlStatus.title = up ? 'Control server connected' : 'Start it: .\\start_dashboard.bat';
     }
+    const hint = document.getElementById('offlineHint');
+    if (hint) hint.hidden = up;
+    Object.values(btns).forEach(b => { if (b) b.classList.toggle('offline', !up); });
   }
 
   function renderStatus(s) {
@@ -684,7 +702,7 @@
     } catch {
       setControlStatus(false);
       synced = false;
-      Object.values(btns).forEach(b => { if (b) b.disabled = true; });
+      Object.values(btns).forEach(b => { if (b) b.disabled = false; });  // stay clickable: clicking explains how to start the server
       if (stopBtn) stopBtn.hidden = true;
       runPanel.hidden = true;
     }
@@ -708,7 +726,11 @@
   Object.entries(btns).forEach(([mode, btn]) => {
     if (!btn) return;
     btn.addEventListener('click', async () => {
-      if (!serverUp) { showToast('Server offline. Run: python scripts/control_server.py', 4000); return; }
+      if (!serverUp) {
+        showBanner('warn', 'The dashboard server is not running. Start it with .\\start_dashboard.bat, then use the page it opens (http://localhost:8765).', false);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
       const d = await post('/run', { mode });
       showToast(d.message || (d.ok ? 'Started' : 'Could not start'), 3500);
       if (d.ok) { startedHere = true; runBanner.hidden = true; }

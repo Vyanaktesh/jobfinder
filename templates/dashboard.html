@@ -24,6 +24,11 @@
       <div class="run-bar"><div class="run-bar-fill" id="runBarFill"></div></div>
       <div class="run-detail" id="runDetail"></div>
     </div>
+    <div class="offline-hint" id="offlineHint" hidden>
+      <b>The Run buttons need the dashboard server.</b>
+      Start it with <code>.\start_dashboard.bat</code> (or double-click that file) and keep that window open.
+      This page connects automatically within a few seconds; the page it opens at <code>http://localhost:8765</code> works too.
+    </div>
     <div class="run-banner" id="runBanner" hidden></div>
     <p class="last-run" id="lastRun"></p>
   </header>
@@ -34,6 +39,7 @@
     <button class="type-tab" data-type="internship">&#127891; Internships <span class="type-tab-count">{{ intern_count }}</span></button>
     <button class="type-tab" data-type="saved">&#9733; Saved <span class="type-tab-count">0</span></button>
     <button class="type-tab" data-type="tracker">&#128203; Tracker <span class="type-tab-count">0</span></button>
+    <button class="type-tab" data-type="studio">&#128221; Resume Studio</button>
   </div>
 
   <div class="controls">
@@ -153,6 +159,48 @@
     </table>
     <div class="empty-state" id="trackerEmpty">Nothing tracked yet. Set a job's <b>Status</b> (or click <b>Apply</b>) and it shows up here.</div>
   </section>
+  <section id="studioView" class="studio" hidden>
+    <p class="studio-note" id="studioNote"></p>
+    <div class="studio-grid">
+      <div class="studio-form">
+        <label>Base resume
+          <select id="studioBase"></select>
+        </label>
+        <div class="studio-row">
+          <label>Company <input type="text" id="studioCompany" maxlength="120" placeholder="Acme Corp"></label>
+          <label>Role <input type="text" id="studioRole" maxlength="120" placeholder="Data Engineer"></label>
+        </div>
+        <label>Job description <span class="studio-hint">(optional, saved with the build)</span>
+          <textarea id="studioJd" rows="4" placeholder="Paste the job description here"></textarea>
+        </label>
+        <label>Tailoring patch (JSON from Claude chat)
+          <textarea id="studioPatch" rows="10" spellcheck="false" placeholder='{"base": "...", "tagline": "...", "skills": [...], ...}'></textarea>
+        </label>
+        <div class="studio-buttons">
+          <button type="button" class="toolbar-btn" id="studioPaste">&#128203; Paste from clipboard</button>
+          <button type="button" class="toolbar-btn" id="studioValidate">Validate</button>
+          <button type="button" class="toolbar-btn run-btn" id="studioBuild">Build PDF</button>
+        </div>
+        <div class="studio-buttons">
+          <button type="button" class="toolbar-btn" id="studioDlPdf" disabled>&#11015; Download PDF</button>
+          <button type="button" class="toolbar-btn" id="studioDlTex" disabled>&#11015; Download .tex</button>
+          <button type="button" class="toolbar-btn" id="studioCopyTex" disabled>Copy .tex</button>
+        </div>
+        <div class="studio-status" id="studioStatus"></div>
+      </div>
+      <div class="studio-preview">
+        <div class="studio-messages" id="studioMessages"></div>
+        <h3>Preview <span class="studio-hint">changed lines are highlighted</span></h3>
+        <div id="studioPreview" class="studio-preview-body"><p class="studio-hint">Paste a patch to see the result.</p></div>
+      </div>
+    </div>
+    <h3>Build history</h3>
+    <table id="studioHistory">
+      <thead><tr><th>Date</th><th>Company</th><th>Role</th><th>Base</th><th>Pages</th><th>Files</th></tr></thead>
+      <tbody id="studioHistoryBody"></tbody>
+    </table>
+    <div class="empty-state" id="studioHistoryEmpty">No builds yet.</div>
+  </section>
   <div class="empty-state" id="emptyState">No jobs match these filters. <button class="toolbar-btn" type="button" id="emptyReset">Reset filters</button></div>
 </div>
 
@@ -164,5 +212,6 @@ const APPLICATIONS = {{ applications_json|safe }};
 const AUTOFILL_JS = {{ autofill_js|tojson }};
 </script>
 {% if inline_js %}<script>{{ inline_js|safe }}</script>{% else %}<script src="../static/dashboard.js"></script>{% endif %}
+{% if inline_studio_js %}<script>{{ inline_studio_js|safe }}</script>{% else %}<script src="../static/resume_studio.js"></script>{% endif %}
 </body>
 </html>

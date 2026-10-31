@@ -108,6 +108,21 @@ CREATE TABLE IF NOT EXISTS applications (
     sponsorship_flag TEXT,
     h1b_count        INTEGER
 );
+
+-- Resume Studio: one row per tailored resume build.
+CREATE TABLE IF NOT EXISTS tailored_resumes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id      INTEGER,
+    company     TEXT,
+    role        TEXT,
+    base_id     TEXT NOT NULL,
+    jd_text     TEXT,
+    patch_json  TEXT,
+    tex_path    TEXT,
+    pdf_path    TEXT,
+    pages       INTEGER,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 APPLICATION_STATUSES = ("none", "saved", "applied", "interviewing", "offer", "rejected", "withdrawn")
@@ -357,6 +372,32 @@ class JobDB:
             written += 1
         self.conn.commit()
         return written
+
+    def add_tailored_resume(self, rec: dict) -> int:
+        cur = self.conn.execute(
+            """INSERT INTO tailored_resumes (job_id, company, role, base_id, jd_text, patch_json, tex_path, pdf_path, pages)
+               VALUES (:job_id, :company, :role, :base_id, :jd_text, :patch_json, :tex_path, :pdf_path, :pages)""",
+            {k: rec.get(k) for k in ("job_id", "company", "role", "base_id", "jd_text", "patch_json",
+                                      "tex_path", "pdf_path", "pages")},
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def list_tailored_resumes(self, limit: int = 200) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT id, job_id, company, role, base_id, pages, tex_path, pdf_path, created_at "
+            "FROM tailored_resumes ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tailored_resume(self, resume_id: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM tailored_resumes WHERE id=?", (resume_id,)).fetchone()
+        return dict(row) if row else None
+
+    def get_job_by_key(self, dedup_key: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT id, company_name, title, location_parsed, apply_url, description_text FROM jobs WHERE dedup_key=?",
+            (dedup_key,)).fetchone()
+        return dict(row) if row else None
 
     def get_platform_progress(self, run_id: int, platform: str) -> int:
         """Get checkpoint count for resume capability (Finding #6)."""
