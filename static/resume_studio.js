@@ -13,7 +13,7 @@
     note: $('studioNote'), base: $('studioBase'), company: $('studioCompany'), role: $('studioRole'),
     jd: $('studioJd'), patch: $('studioPatch'), paste: $('studioPaste'), validate: $('studioValidate'),
     build: $('studioBuild'), dlPdf: $('studioDlPdf'), dlTex: $('studioDlTex'), copyTex: $('studioCopyTex'),
-    status: $('studioStatus'), messages: $('studioMessages'), preview: $('studioPreview'),
+    strict: $('studioStrict'), status: $('studioStatus'), messages: $('studioMessages'), preview: $('studioPreview'),
     histBody: $('studioHistoryBody'), histEmpty: $('studioHistoryEmpty'),
   };
   const state = { loaded: false, online: false, baseCache: {}, last: null, jobId: null, timer: null };
@@ -190,31 +190,49 @@
   }
 
   // ---- messages ----
-  function showMessages({ errors = [], warnings = [], missing = [], notes = '' }) {
+  function box(cls, title) {
+    const b = document.createElement('div'); b.className = 'msg-box ' + cls;
+    if (title) { const h = document.createElement('b'); h.textContent = title; b.appendChild(h); }
+    el.messages.appendChild(b);
+    return b;
+  }
+  function bullets(parent, items) {
+    const ul = document.createElement('ul');
+    items.forEach(t => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+    parent.appendChild(ul);
+  }
+
+  function showMessages({ errors = [], warnings = [], notInBank = [], fit = null, missing = [], notes = '' }) {
     el.messages.textContent = '';
-    const list = (items, cls, title) => {
-      if (!items.length) return;
-      const box = document.createElement('div'); box.className = 'msg-box ' + cls;
-      const h = document.createElement('b'); h.textContent = title; box.appendChild(h);
-      const ul = document.createElement('ul');
-      items.forEach(t => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
-      box.appendChild(ul); el.messages.appendChild(box);
-    };
-    list(errors, 'err', `${errors.length} problem${errors.length === 1 ? '' : 's'} to fix`);
-    list(warnings, 'warn', 'Warnings');
+
+    // The real fit check (after compiling) comes first: it is the thing to act on.
+    if (fit && fit.banner) {
+      const b = box('err big', fit.banner);
+      if ((fit.page2_lines || []).length) {
+        const p = document.createElement('p'); p.textContent = 'Page 2 starts with (shorten something above these):'; b.appendChild(p);
+        bullets(b, fit.page2_lines);
+      }
+    }
+    if (errors.length) bullets(box('err', `${errors.length} problem${errors.length === 1 ? '' : 's'} to fix`), errors);
+    if (warnings.length) bullets(box('warn', 'Warnings'), warnings);
+    if (notInBank.length) {
+      const det = document.createElement('details'); det.className = 'msg-box warn';
+      const sum = document.createElement('summary');
+      sum.textContent = `${notInBank.length} item${notInBank.length === 1 ? '' : 's'} not in bank`;
+      det.appendChild(sum); bullets(det, notInBank);
+      el.messages.appendChild(det);
+    }
+    if (fit && (fit.short_last_lines || []).length) {
+      const b = box('info', 'Short last lines (a few words wrap onto their own line; shortening these bullets saves a line)');
+      bullets(b, fit.short_last_lines.map(s => `"${s.last_line}" (${s.chars} characters) at the end of: ${s.bullet}`));
+    }
     if (missing.length) {
-      const box = document.createElement('div'); box.className = 'msg-box info';
-      const h = document.createElement('b'); h.textContent = 'Missing keywords (not on the resume)'; box.appendChild(h);
+      const b = box('info', 'Missing keywords (not on the resume)');
       const chips = document.createElement('div'); chips.className = 'kw-chips';
       missing.forEach(k => { const c = document.createElement('span'); c.className = 'kw-chip'; c.textContent = k; chips.appendChild(c); });
-      box.appendChild(chips); el.messages.appendChild(box);
+      b.appendChild(chips);
     }
-    if (notes) {
-      const box = document.createElement('div'); box.className = 'msg-box info';
-      const h = document.createElement('b'); h.textContent = 'Match notes'; box.appendChild(h);
-      const p = document.createElement('p'); p.textContent = notes; box.appendChild(p);
-      el.messages.appendChild(box);
-    }
+    if (notes) { const b = box('info', 'Match notes'); const p = document.createElement('p'); p.textContent = notes; b.appendChild(p); }
   }
 
   // ---- actions ----
@@ -233,9 +251,9 @@
   async function runValidate() {
     const parsed = parsePatch();
     if (parsed.empty || parsed.error || !state.online) return null;
-    const d = await api('/api/resumes/validate', { base: el.base.value, patch: parsed.patch });
+    const d = await api('/api/resumes/validate', { base: el.base.value, patch: parsed.patch, strict: el.strict.checked });
     if (d._offline) { setOnline(false); return null; }
-    showMessages({ errors: d.errors || [], warnings: d.warnings || [],
+    showMessages({ errors: d.errors || [], warnings: d.warnings || [], notInBank: d.not_in_bank || [],
                    missing: parsed.patch.missing_keywords || [], notes: parsed.patch.match_notes || '' });
     el.status.textContent = d.ok ? 'Patch looks good.' : '';
     el.status.className = 'studio-status' + (d.ok ? ' ok' : '');
@@ -256,16 +274,16 @@
     el.status.textContent = ''; el.status.className = 'studio-status';
     const d = await api('/api/resumes/build', {
       base: el.base.value, patch: parsed.patch, company: el.company.value, role: el.role.value,
-      job_id: state.jobId, jd_text: el.jd.value });
+      job_id: state.jobId, jd_text: el.jd.value, strict: el.strict.checked });
     el.build.disabled = !state.online; el.build.textContent = 'Build PDF';
     if (d._offline) { setOnline(false); return; }
-    showMessages({ errors: d.errors || [], warnings: d.warnings || [],
+    showMessages({ errors: d.errors || [], warnings: d.warnings || [], notInBank: d.not_in_bank || [], fit: d.fit || null,
                    missing: parsed.patch.missing_keywords || [], notes: parsed.patch.match_notes || '' });
     if (!d.ok) { el.status.textContent = 'Not built. Fix the problems on the right.'; el.status.className = 'studio-status bad'; return; }
     state.last = d; setDownloads(d);
     if (d.pdf_built) {
       const one = d.pages === 1;
-      el.status.textContent = d.pages == null ? 'PDF built.' : `PDF built: ${d.pages} page${d.pages === 1 ? '' : 's'}${one ? '' : ' (over one page!)'}.`;
+      el.status.textContent = d.pages == null ? 'PDF built.' : `PDF built: ${d.pages} page${d.pages === 1 ? '' : 's'}${one ? '' : ' (over one page, see the red box)'}.`;
       el.status.className = 'studio-status ' + (d.pages > 1 ? 'bad' : 'ok');
     } else {
       el.status.textContent = '.tex saved (no PDF: see the warning).'; el.status.className = 'studio-status warn';
@@ -275,6 +293,7 @@
 
   el.patch.addEventListener('input', onPatchChanged);
   el.base.addEventListener('change', onPatchChanged);
+  el.strict.addEventListener('change', () => { state.last = null; setDownloads(null); runValidate(); });
   el.validate.addEventListener('click', async () => { const d = await runValidate(); if (!d) toast('Paste a valid JSON patch first.'); });
   el.build.addEventListener('click', runBuild);
   el.paste.addEventListener('click', async () => {

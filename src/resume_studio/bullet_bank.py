@@ -44,8 +44,14 @@ class BulletBank:
     do_not_claim: list[str] = field(default_factory=list)
 
     def knows_tool(self, name: str) -> bool:
+        """True if `name` is a listed skill or appears in the bank as a whole word/phrase
+        ('Rust' must not match inside 'trust')."""
         n = name.strip().lower()
-        return bool(n) and (n in self.skills or n in self.text_lower)
+        if not n:
+            return False
+        if n in self.skills:
+            return True
+        return bool(re.search(rf"(?<![a-z0-9]){re.escape(n)}(?![a-z0-9])", self.text_lower))
 
 
 _cache: dict[tuple[str, float], BulletBank] = {}

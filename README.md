@@ -91,10 +91,18 @@ The **Resume Studio** tab builds a one-page tailored resume PDF from your base r
    role and job description), pick/paste, and press **Validate** then **Build PDF**.
 3. Download the PDF or `.tex`. Builds are saved to `output/resumes/<Company>_<Role>_<date>.pdf|tex` and listed in the history table.
 
-**What the validator blocks:** unknown keys, wrong row/bullet counts, em/en dashes, first-person words in bullets,
-any number that is not in `BULLET_BANK.md` (no invented metrics), and LaTeX commands such as `\write` or `\input`.
-It warns about tools missing from your bank, anything on your do-not-claim list, and bullets over 190 characters
-(your own base bullets are sometimes longer; the real one-page check happens after the build).
+**The pasted JSON drives the resume; the bullet bank only advises.**
+- **Blocks the build:** invalid JSON, unknown keys (`pdf_title` is accepted and ignored), wrong types, empty
+  strings, counts outside 1-5 skill rows / 1-6 bullets per experience entry / 1-4 projects with 1-3 bullets
+  each, and LaTeX commands such as `\write`, `\input`, `\include`, `\openin`, `\immediate`, `\catcode`,
+  `\def` and `\newcommand` anywhere in the patch.
+- **Yellow warnings (never block):** numbers not found in `BULLET_BANK.md`, em/en dashes, first-person words
+  in bullets, and one collapsed line "N items not in bank" for skills the bank doesn't list.
+- **Strict mode (checkbox, off by default):** makes the number and skill checks blocking again.
+- **Fit check after the PDF is built:** the real page count. If it is more than one page you get a red
+  "Resume is N pages" banner plus the first 3 lines of page 2 (the bullets to shorten), and a note listing
+  wrapped bullets whose last line is under 34 characters (shortening them saves a line). Text is read with
+  `pdftotext` when installed, otherwise with `pypdf`.
 
 ## Data Sources
 

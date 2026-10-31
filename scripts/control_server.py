@@ -407,7 +407,8 @@ class Handler(BaseHTTPRequestHandler):
         from src.resume_studio import service as rs_service
 
         if path == "/api/resumes/validate":
-            return self._json(200, rs_service.validate(str(data.get("base") or ""), data.get("patch")))
+            return self._json(200, rs_service.validate(str(data.get("base") or ""), data.get("patch"),
+                                                       strict=bool(data.get("strict"))))
         if path == "/api/resumes/build":
             result = _with_db(lambda db: rs_service.build(db, data))
             return self._json(200 if result.get("ok") else 422, result)

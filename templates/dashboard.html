@@ -176,6 +176,9 @@
         <label>Tailoring patch (JSON from Claude chat)
           <textarea id="studioPatch" rows="10" spellcheck="false" placeholder='{"base": "...", "tagline": "...", "skills": [...], ...}'></textarea>
         </label>
+        <label class="studio-strict" title="Off: your patch is used as pasted and the bank only produces warnings. On: numbers and skills that are not in BULLET_BANK.md block the build.">
+          <input type="checkbox" id="studioStrict"> Strict mode (check against bank)
+        </label>
         <div class="studio-buttons">
           <button type="button" class="toolbar-btn" id="studioPaste">&#128203; Paste from clipboard</button>
           <button type="button" class="toolbar-btn" id="studioValidate">Validate</button>

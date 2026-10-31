@@ -121,81 +121,144 @@ def test_bank_numbers_and_lists(bank):
 
 
 # ---------------------------------------------------------------- validation
+# The pasted JSON drives the resume; the bank only advises (unless strict mode is on).
+def v(patch, base, bank, strict=False):
+    return validate_patch(patch, base, bank, strict=strict)
+
+
 def test_clean_patch_passes(base, bank):
-    assert validate_patch(good_patch(), base, bank) == ([], [])
+    assert v(good_patch(), base, bank) == ([], [], [])
 
 
-def test_fake_number_is_rejected(base, bank):
-    patch = good_patch(experience_bullets={"0": ["Cut latency 77% across 15 endpoints.", "b", "c", "d"]})
-    errors, _ = validate_patch(patch, base, bank)
-    assert any("77" in e and "BULLET_BANK" in e for e in errors)
+def test_numbers_not_in_the_bank_warn_but_never_block(base, bank):
+    patch = good_patch(experience_bullets={"0": ["Cut latency 77% across 400 endpoints.", "b", "c", "d"]})
+    errors, warnings, _ = v(patch, base, bank)
+    assert errors == [] and any("77" in w and "400" in w and "BULLET_BANK" in w for w in warnings)
 
 
-def test_numbers_from_the_bank_are_allowed(base, bank):
-    patch = good_patch(experience_bullets={"0": ["Cut API response time **30%** across **15** endpoints.",
-                                                 "Automated reports for **12** teams.", "Wrote **120** tests.", "Raised coverage to **85%**."]})
-    assert validate_patch(patch, base, bank)[0] == []
+def test_numbers_in_the_bank_do_not_warn(base, bank):
+    patch = good_patch(experience_bullets={"0": ["Cut API response time **30%** across **15** endpoints.", "Automated reports for **12** teams.",
+                                                 "Wrote **120** tests.", "Raised coverage to **85%**."]})
+    assert v(patch, base, bank) == ([], [], [])
 
 
-@pytest.mark.parametrize("bad", ["Built it — fast", "Built it – fast"])
-def test_dashes_rejected(base, bank, bad):
-    errors, _ = validate_patch(good_patch(tagline=bad), base, bank)
-    assert any("dash" in e for e in errors)
+@pytest.mark.parametrize("dash", ["\u2014", "\u2013"])
+def test_dashes_warn_but_never_block(base, bank, dash):
+    errors, warnings, _ = v(good_patch(tagline=f"Built it {dash} fast"), base, bank)
+    assert errors == [] and any("dash" in w for w in warnings)
 
 
 @pytest.mark.parametrize("word", ["I", "me", "my", "we", "our"])
-def test_first_person_rejected_in_bullets(base, bank, word):
+def test_first_person_warns_but_never_blocks(base, bank, word):
     patch = good_patch(experience_bullets={"0": [f"Shipped what {word} designed.", "b", "c", "d"]})
-    errors, _ = validate_patch(patch, base, bank)
-    assert any("first-person" in e for e in errors)
+    errors, warnings, _ = v(patch, base, bank)
+    assert errors == [] and any("first-person" in w for w in warnings)
 
 
 def test_first_person_check_does_not_flag_ordinary_words(base, bank):
     patch = good_patch(experience_bullets={"0": ["Improved I/O throughput for our-less words like mean, meet and weekly.", "b", "c", "d"]})
-    assert not any("first-person" in e for e in validate_patch(patch, base, bank)[0])
+    assert not any("first-person" in w for w in v(patch, base, bank)[1])
 
 
-@pytest.mark.parametrize("cmd", [r"\write18{rm -rf /}", r"\input{/etc/passwd}", r"\include{x}",
-                                 r"\openin1=secrets", r"\immediate\write", r"\catcode`\%=12"])
-def test_latex_injection_rejected_everywhere(base, bank, cmd):
+def test_skills_not_in_the_bank_come_back_as_one_list_not_many_warnings(base, bank):
+    skills = [{"label": "A", "items": "Python, Rust, Go"}, {"label": "B", "items": "SQL, Zig"}, {"label": "C", "items": "AWS (EC2, S3)"}]
+    errors, warnings, not_in_bank = v(good_patch(skills=skills), base, bank)
+    assert errors == [] and not_in_bank == ["Rust", "Go", "Zig"]
+    assert not any("not in your bullet bank" in w or "Rust" in w for w in warnings)      # no per-item warnings
+
+
+def test_do_not_claim_terms_still_warn(base, bank):
+    skills = [{"label": "A", "items": "Python, Pandas"}, {"label": "B", "items": "SQL"}, {"label": "C", "items": "Docker"}]
+    errors, warnings, _ = v(good_patch(skills=skills), base, bank)
+    assert errors == [] and any("Pandas" in w and "do-not-claim" in w for w in warnings)
+
+
+def test_no_length_warning_or_block_for_long_bullets(base, bank):
+    long = "Wrote **12** tests " + "x" * 600
+    errors, warnings, _ = v(good_patch(experience_bullets={"0": [long, "b", "c", "d"]}), base, bank)
+    assert errors == [] and not any("character" in w or "190" in w or "too long" in w for w in warnings)
+
+
+@pytest.mark.parametrize("cmd", [r"\write18{rm -rf /}", r"\input{/etc/passwd}", r"\include{x}", r"\openin1=secrets",
+                                 r"\immediate\write", r"\catcode`\%=12", r"\def\x{y}", r"\newcommand{\z}{q}"])
+def test_latex_injection_blocks_everywhere(base, bank, cmd):
     for patch in (good_patch(tagline=f"Engineer {cmd}"),
                   good_patch(match_notes=cmd),
                   good_patch(missing_keywords=[cmd]),
                   good_patch(skills=[{"label": "A", "items": cmd}, {"label": "B", "items": "Python"}, {"label": "C", "items": "SQL"}])):
-        errors, _ = validate_patch(patch, base, bank)
+        errors, _, _ = v(patch, base, bank)
         assert any("Blocked LaTeX command" in e for e in errors), (cmd, errors)
 
 
-def test_unknown_keys_and_types_rejected(base, bank):
-    assert any("Unknown key" in e for e in validate_patch(good_patch(pdf_title="x"), base, bank)[0])
-    assert validate_patch([1, 2], base, bank)[0]
-    assert validate_patch(good_patch(skills="Python"), base, bank)[0]
-    assert validate_patch(good_patch(experience_bullets={"x": ["a"]}), base, bank)[0]
+def test_unknown_keys_block_but_pdf_title_is_ignored(base, bank):
+    assert any("Unknown key 'foo'" in e for e in v(good_patch(foo=1), base, bank)[0])
+    assert v(good_patch(pdf_title="Old Title"), base, bank)[0] == []           # accepted, no error
 
 
-def test_counts_must_match_the_base(base, bank):
-    two_rows = good_patch(skills=[{"label": "A", "items": "Python"}, {"label": "B", "items": "SQL"}])
-    assert any("exactly 3 rows" in e for e in validate_patch(two_rows, base, bank)[0])
-    three_bullets = good_patch(experience_bullets={"0": ["a", "b", "c"]})
-    assert any("exactly 4 bullets" in e for e in validate_patch(three_bullets, base, bank)[0])
-    projects = [{"name": "P", "stack": "Python", "tag": "", "bullets": ["Wrote **12** tests."]}] * 3
-    assert any("exactly 2 bullets" in e for e in validate_patch(good_patch(projects=projects), base, bank)[0])
+def test_pdf_title_is_ignored_when_rendering():
+    tex, res = render.render_tex(BASE, good_patch(pdf_title="Evil {Title}"))
+    assert "Evil" not in tex and res["pdf_title"] == "Jordan Sample Engineer Resume"
 
 
-def test_long_bullets_warn_then_block(base, bank):
-    fill = "Wrote **12** tests " + "x" * 190
-    ok = validate_patch(good_patch(experience_bullets={"0": [fill[:200], "b", "c", "d"]}), base, bank)
-    assert not any("characters" in e for e in ok[0]) and any("over 190" in w for w in ok[1])
-    too_long = validate_patch(good_patch(experience_bullets={"0": [fill + "y" * 100, "b", "c", "d"]}), base, bank)
-    assert any("too long" in e for e in too_long[0])
+def test_wrong_types_and_empty_strings_block(base, bank):
+    assert v([1, 2], base, bank)[0]
+    assert v(good_patch(skills="Python"), base, bank)[0]
+    assert v(good_patch(experience_bullets={"x": ["a"]}), base, bank)[0]
+    assert v(good_patch(experience_bullets={"9": ["a"]}), base, bank)[0]          # no such experience entry
+    assert any("tagline" in e for e in v(good_patch(tagline="   "), base, bank)[0])
+    assert any("[0][1]" in e for e in v(good_patch(experience_bullets={"0": ["a", "", "c", "d"]}), base, bank)[0])
+    assert v(good_patch(skills=[{"label": "A", "items": ""}]), base, bank)[0]
+    assert v(good_patch(skills=[{"label": "", "items": "Python"}]), base, bank)[0]
+    assert v(good_patch(missing_keywords=["ok", ""]), base, bank)[0]
+    assert v(good_patch(missing_keywords="nope"), base, bank)[0]
+    assert v(good_patch(match_notes=5), base, bank)[0]
+    assert v(good_patch(projects=[{"name": "P", "stack": "", "bullets": ["x"]}]), base, bank)[0]
+    assert v(good_patch(projects=[{"name": "P", "stack": "S", "tag": 5, "bullets": ["x"]}]), base, bank)[0]
+    assert v(good_patch(base=""), base, bank)[0]
 
 
-def test_skill_and_do_not_claim_warnings(base, bank):
-    skills = [{"label": "A", "items": "Python, Pandas, Rust"}, {"label": "B", "items": "SQL"}, {"label": "C", "items": "AWS (EC2, S3)"}]
-    errors, warnings = validate_patch(good_patch(skills=skills), base, bank)
-    assert errors == []
-    assert any("'Rust'" in w for w in warnings) and any("Pandas" in w and "do-not-claim" in w for w in warnings)
-    assert not any("'AWS (EC2, S3)'" in w for w in warnings)
+def proj(n):
+    return [{"name": f"P{i}", "stack": "Python", "tag": "", "bullets": ["Did a thing."]} for i in range(n)]
+
+
+def test_relaxed_counts_accept_the_whole_range(base, bank):
+    for rows in (1, 3, 5):
+        assert v(good_patch(skills=[{"label": f"L{i}", "items": "Python"} for i in range(rows)]), base, bank)[0] == []
+    for n in (1, 4, 6):
+        assert v(good_patch(experience_bullets={"0": [f"Bullet {i}." for i in range(n)]}), base, bank)[0] == []
+    for n in (1, 2, 4):
+        assert v(good_patch(projects=proj(n)), base, bank)[0] == []
+    for n in (1, 2, 3):
+        pr = [{"name": "P", "stack": "S", "tag": "", "bullets": [f"B{i}." for i in range(n)]}]
+        assert v(good_patch(projects=pr), base, bank)[0] == []
+
+
+def test_counts_outside_the_range_block(base, bank):
+    assert v(good_patch(skills=[]), base, bank)[0]
+    assert v(good_patch(skills=[{"label": f"L{i}", "items": "Python"} for i in range(6)]), base, bank)[0]
+    assert v(good_patch(experience_bullets={"0": []}), base, bank)[0]
+    assert v(good_patch(experience_bullets={"0": [f"B{i}." for i in range(7)]}), base, bank)[0]
+    assert v(good_patch(projects=[]), base, bank)[0]
+    assert v(good_patch(projects=proj(5)), base, bank)[0]
+    over = [{"name": "P", "stack": "S", "tag": "", "bullets": [f"B{i}." for i in range(4)]}]
+    assert v(good_patch(projects=over), base, bank)[0]
+
+
+def test_strict_mode_makes_numbers_and_skills_block_again(base, bank):
+    patch = good_patch(experience_bullets={"0": ["Cut latency 77%.", "b", "c", "d"]},
+                       skills=[{"label": "A", "items": "Python, Rust"}, {"label": "B", "items": "SQL"}, {"label": "C", "items": "Docker"}])
+    assert v(patch, base, bank)[0] == []
+    errors, _, not_in_bank = v(patch, base, bank, strict=True)
+    assert any("77" in e and "Strict mode" in e for e in errors) and any("Rust" in e for e in errors) and not_in_bank == ["Rust"]
+
+
+def test_strict_mode_does_not_block_on_dashes_or_first_person(base, bank):
+    patch = good_patch(tagline="A \u2014 B", experience_bullets={"0": ["I shipped it.", "b", "c", "d"]})
+    assert v(patch, base, bank, strict=True)[0] == []
+
+
+def test_oversized_patch_is_refused(base, bank):
+    assert any("too large" in e for e in v(good_patch(match_notes="x" * 70_000), base, bank)[0])
 
 
 # ---------------------------------------------------------------- file names
@@ -259,15 +322,46 @@ def test_build_without_latex_saves_tex_and_history(monkeypatch, db, tmp_path):
     assert rec["jd_text"] == "We need Python." and json.loads(rec["patch_json"])["base"] == BASE
 
 
-def test_build_with_fake_latex_flags_extra_pages(monkeypatch, db, tmp_path):
+def test_build_with_fake_latex_reports_page_overflow_with_page2_lines(monkeypatch, db, tmp_path):
+    from src.resume_studio import fit as rs_fit
     monkeypatch.setenv("RESUME_STUDIO_LATEX", str(fake_latex(tmp_path, pages=2)))
+    monkeypatch.setattr(rs_fit, "extract_pages", lambda pdf: (
+        [["Experience", "\u2022 Page one bullet"], ["\u2022 First bullet on page two", "wraps here", "Third line", "Fourth line"]], "pdftotext"))
     r = service.build(db, {"base": BASE, "patch": good_patch(), "company": "A", "role": "B"}, output_dir=tmp_path / "o")
-    assert r["ok"] and r["pdf_built"] and r["pages"] == 2 and any("2 pages" in w for w in r["warnings"])
+    assert r["ok"] and r["pdf_built"] and r["pages"] == 2
+    assert r["fit"]["banner"] == "Resume is 2 pages"
+    assert r["fit"]["page2_lines"] == ["\u2022 First bullet on page two", "wraps here", "Third line"]
     assert Path(r["pdf_path"]).read_bytes().startswith(b"%PDF")
 
 
+def test_one_page_build_has_no_banner(monkeypatch, db, tmp_path):
+    monkeypatch.setenv("RESUME_STUDIO_LATEX", str(fake_latex(tmp_path, pages=1)))
+    r = service.build(db, {"base": BASE, "patch": good_patch(), "company": "A", "role": "B"}, output_dir=tmp_path / "o")
+    assert r["pages"] == 1 and r["fit"]["banner"] == "" and r["fit"]["page2_lines"] == []
+
+
+def test_patch_with_numbers_and_skills_not_in_the_bank_still_builds(db, tmp_path):
+    patch = good_patch(experience_bullets={"0": ["Cut costs 73% across 400 clusters.", "b", "c", "d"]},
+                       skills=[{"label": "A", "items": "Python, Rust, Zig"}, {"label": "B", "items": "SQL"}, {"label": "C", "items": "Docker"}],
+                       tagline="Engineer \u2014 I build things")
+    r = service.build(db, {"base": BASE, "patch": patch, "company": "A", "role": "B"}, output_dir=tmp_path / "o")
+    assert r["ok"] and r["not_in_bank"] == ["Rust", "Zig"] and any("73" in w for w in r["warnings"])
+    assert Path(r["tex_path"]).is_file()
+
+
+def test_strict_mode_blocks_the_same_patch(db, tmp_path):
+    patch = good_patch(experience_bullets={"0": ["Cut costs 73%.", "b", "c", "d"]})
+    r = service.build(db, {"base": BASE, "patch": patch, "company": "A", "role": "B", "strict": True}, output_dir=tmp_path / "o")
+    assert not r["ok"] and any("Strict mode" in e for e in r["errors"]) and db.list_tailored_resumes() == []
+
+
+def test_old_patches_with_pdf_title_still_build(db, tmp_path):
+    r = service.build(db, {"base": BASE, "patch": good_patch(pdf_title="Whatever"), "company": "A", "role": "B"}, output_dir=tmp_path / "o")
+    assert r["ok"] and r["errors"] == []
+
+
 def test_invalid_patch_is_not_built_or_saved(db, tmp_path):
-    bad = good_patch(experience_bullets={"0": ["Cut it 99%.", "b", "c", "d"]})
+    bad = good_patch(tagline="Engineer \\input{/etc/passwd}")
     r = service.build(db, {"base": BASE, "patch": bad, "company": "A", "role": "B"}, output_dir=tmp_path / "o")
     assert not r["ok"] and r["errors"] and db.list_tailored_resumes() == [] and not (tmp_path / "o").exists()
 
@@ -324,7 +418,13 @@ def test_api_lists_bases_and_loads_one(server):
 
 def test_api_validate_build_history_download(server):
     status, body, _ = call(server + "/api/resumes/validate", {"base": BASE, "patch": good_patch(tagline="A — B")})
-    assert status == 200 and json.loads(body)["ok"] is False
+    d = json.loads(body)
+    assert status == 200 and d["ok"] is True and any("dash" in w for w in d["warnings"])       # a dash only warns
+    status, body, _ = call(server + "/api/resumes/validate", {"base": BASE, "patch": good_patch(foo=1)})
+    assert json.loads(body)["ok"] is False
+    odd = good_patch(skills=[{"label": "A", "items": "Rust"}, {"label": "B", "items": "SQL"}, {"label": "C", "items": "Docker"}])
+    assert json.loads(call(server + "/api/resumes/validate", {"base": BASE, "patch": odd})[1])["not_in_bank"] == ["Rust"]
+    assert json.loads(call(server + "/api/resumes/validate", {"base": BASE, "patch": odd, "strict": True})[1])["ok"] is False
     status, body, _ = call(server + "/api/resumes/build",
                            {"base": BASE, "patch": good_patch(), "company": "Acme", "role": "Eng"})
     built = json.loads(body)
@@ -455,3 +555,61 @@ def test_unusable_files_are_reported_not_hidden(tmp_path):
 def test_api_reports_folder_and_problems(server):
     d = json.loads(call(server + "/api/resumes")[1])
     assert d["data_dir"] == str(paths.SAMPLE_DIR) and d["problems"] == [] and "bases" in d
+
+
+# ---------------------------------------------------------------- fit analysis
+def test_analyze_lists_short_last_lines_and_page2_start():
+    from src.resume_studio.fit import analyze
+    bullet_a = "Raised the answer rate from **51% to 85%** on 75 real questions by analyzing past tickets, tuning a gate, and adding staff approval."
+    bullet_b = "Wrote a long and detailed description of work that definitely wraps onto a second line, then ends with a long tail of words here."
+    pages = [["Experience", "\u2022 Raised the answer rate from 51% to 85% on 75 real questions by analyzing past tickets, tuning a",
+              "gate, and adding staff approval.",
+              "\u2022 Wrote a long and detailed description of work that definitely wraps onto a second line, then ends with",
+              "a long tail of words here, with enough text to be longer than the threshold."],
+             ["\u2022 Next page bullet", "continues here", "and here", "and more"]]
+    out = analyze(pages, [bullet_a, bullet_b])
+    assert out["page2_lines"] == ["\u2022 Next page bullet", "continues here", "and here"]
+    assert [s["last_line"] for s in out["short_last_lines"]] == ["gate, and adding staff approval."]
+    assert out["short_last_lines"][0]["chars"] == 32 and out["short_last_lines"][0]["page"] == 1
+
+
+def test_analyze_ignores_single_line_bullets_and_survives_kerning_gaps():
+    from src.resume_studio.fit import analyze
+    one_line = "Short bullet that fits on one line only."
+    wrapped = "Built an ingestion pipeline with Technology and AWS services that wraps across two lines of the resume."
+    pages = [["\u2022 Short bullet that fits on one line only.",
+              "\u2022 Built an ingestion pipeline with T echnology and A WS services that wraps across two",
+              "lines of the resume."]]
+    out = analyze(pages, [one_line, wrapped])
+    assert [s["last_line"] for s in out["short_last_lines"]] == ["lines of the resume."]
+
+
+def test_fit_report_never_raises_on_unreadable_pdfs():
+    from src.resume_studio.fit import fit_report
+    r = fit_report(b"not a pdf", 2, ["x" * 40])
+    assert r["pages"] == 2 and r["banner"] == "Resume is 2 pages" and "error" in r
+
+
+def test_extract_pages_reads_a_real_pdf():
+    from src.resume_studio.fit import extract_pages
+    from pypdf import PdfWriter
+    import io
+    w = PdfWriter()
+    w.add_blank_page(width=612, height=792)
+    w.add_blank_page(width=612, height=792)
+    buf = io.BytesIO()
+    w.write(buf)
+    pages, source = extract_pages(buf.getvalue())
+    assert len(pages) == 2 and source in ("pdftotext", "pypdf")
+
+
+def test_tool_names_match_whole_words_only(bank, tmp_path):
+    from src.resume_studio.bullet_bank import load_bank
+    f = tmp_path / "BULLET_BANK.md"
+    f.write_text("## Example\n\n- Built trust with a governance model and used Go-style naming.\n\n"
+                 "## Skills you may list (exact spellings)\n\nPython, Docker\n", encoding="utf-8")
+    b = load_bank(f)
+    assert b.knows_tool("Python") and b.knows_tool("docker")
+    assert not b.knows_tool("Rust")          # only appears inside 'trust'
+    assert not b.knows_tool("Gover")         # only a prefix of 'governance'
+    assert b.knows_tool("governance")        # a whole word in the bank text
