@@ -105,21 +105,34 @@ def to_tex(res: dict, prof: dict) -> str:
 
 def load_profile(data_dir: Path | None = None) -> dict:
     d = Path(data_dir or paths.data_dir())
-    return json.loads((d / "profile.json").read_text(encoding="utf-8"))
+    return json.loads((d / "profile.json").read_text(encoding="utf-8-sig"))
+
+
+def scan_bases(data_dir: Path | None = None) -> tuple[list[dict], list[str]]:
+    """Return (bases, problems). A file that can't be used is reported, never silently skipped."""
+    d = Path(data_dir or paths.data_dir())
+    out, problems = [], []
+    for f in sorted(d.glob("*.json")):
+        if f.name == "profile.json":
+            continue
+        if not _BASE_ID_RE.match(f.stem):
+            problems.append(f"{f.name}: the file name may only contain letters, digits, _ and -.")
+            continue
+        try:
+            res = json.loads(f.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as e:
+            problems.append(f"{f.name}: not valid JSON ({e}).")
+            continue
+        missing = [k for k in ("tagline", "skills", "experience", "projects") if k not in res]
+        if missing:
+            problems.append(f"{f.name}: missing {', '.join(missing)}.")
+            continue
+        out.append({"id": f.stem, "pdf_title": res.get("pdf_title", f.stem), "tagline": res.get("tagline", "")})
+    return out, problems
 
 
 def list_bases(data_dir: Path | None = None) -> list[dict]:
-    d = Path(data_dir or paths.data_dir())
-    out = []
-    for f in sorted(d.glob("*.json")):
-        if f.name == "profile.json" or not _BASE_ID_RE.match(f.stem):
-            continue
-        try:
-            res = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        out.append({"id": f.stem, "pdf_title": res.get("pdf_title", f.stem), "tagline": res.get("tagline", "")})
-    return out
+    return scan_bases(data_dir)[0]
 
 
 def load_base(base_id: str, data_dir: Path | None = None) -> dict:
@@ -129,7 +142,7 @@ def load_base(base_id: str, data_dir: Path | None = None) -> dict:
     f = Path(data_dir or paths.data_dir()) / f"{base_id}.json"
     if not f.is_file():
         raise KeyError(f"Unknown base resume: {base_id!r}")
-    return json.loads(f.read_text(encoding="utf-8"))
+    return json.loads(f.read_text(encoding="utf-8-sig"))
 
 
 def render_tex(base_id: str, patch: dict | None = None, data_dir: Path | None = None) -> tuple[str, dict]:

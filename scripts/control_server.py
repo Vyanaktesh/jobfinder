@@ -375,8 +375,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/resumes":
             latex = find_latex()
-            return self._json(200, {"bases": rs_render.list_bases(), "using_sample": rs_paths.using_sample(),
-                                    "latex": latex[0] if latex else None})
+            bases, problems = rs_render.scan_bases()
+            return self._json(200, {"bases": bases, "problems": problems, "using_sample": rs_paths.using_sample(),
+                                    "data_dir": str(rs_paths.data_dir()), "latex": latex[0] if latex else None})
         if path == "/api/resumes/history":
             return self._json(200, {"history": _with_db(lambda db: db.list_tailored_resumes())})
         m = RESUME_FILE_RE.match(path)
@@ -454,6 +455,13 @@ def main():
     ap.add_argument("--port", type=int, default=PORT)
     args = ap.parse_args()
 
+    try:
+        from src.resume_studio.importer import auto_import
+        imported = auto_import()
+        if imported:
+            print(f"Resume Studio: imported your resume_kit ({len(imported)} files) into config/resume_studio/")
+    except Exception as e:  # noqa: BLE001  (never block the dashboard over this)
+        print(f"Resume Studio: could not import resume_kit: {e}")
     ensure_dashboard()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://localhost:{args.port}"

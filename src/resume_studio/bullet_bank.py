@@ -60,7 +60,7 @@ def load_bank(path: Path) -> BulletBank:
     if key in _cache:
         return _cache[key]
 
-    text = path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8-sig")
     bank = BulletBank(text_lower=text.lower(), numbers=set(numbers_in(text)))
 
     sections = re.split(r"(?m)^##\s+", text)
