@@ -311,4 +311,8 @@
       el.patch.focus();
     },
   };
+
+  // The dashboard remembers the last tab, so a reload can open directly on this panel before this
+  // script has loaded (and so before the tab click that normally starts it). Start it now.
+  if (!view.hidden) window.ResumeStudio.onShow();
 })();
