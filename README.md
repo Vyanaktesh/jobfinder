@@ -72,6 +72,30 @@ Your tracker is stored in `data/jobs.db` (table `applications`) whenever the das
 scrape. If the server is off, changes are kept in the browser and synced the next time it's on. Your old
 browser-only "applied" and "saved" marks are imported automatically the first time.
 
+## Resume Studio (tailor a resume per job, offline)
+
+The **Resume Studio** tab builds a one-page tailored resume PDF from your base resumes plus a small JSON
+"patch". No AI is called from the app, so no tokens are spent re-sending your resume.
+
+**One-time setup**
+1. Load your own data (the repo ships a fake sample): `python scripts/import_resume_kit.py path/to/resume_kit`.
+   It copies your `data/*.json` and `BULLET_BANK.md` into `config/resume_studio/`, which is **gitignored**
+   because it holds your contact details and client facts (this repo is public).
+2. Install a LaTeX compiler so PDFs can be built: **MiKTeX** (Windows) or **TeX Live** (Mac/Linux).
+   Without one the app still saves the `.tex` for you to open in Overleaf. (`pip install -r requirements.txt`
+   adds `pypdf`, used to check that the PDF is one page.)
+
+**Per job**
+1. In Claude chat, paste `CLAUDE_CHAT_PROMPT.md` plus the job description; Claude returns one JSON block.
+2. In the dashboard open **Resume Studio** (or click **Tailor resume** on a Tracker row to prefill the company,
+   role and job description), pick/paste, and press **Validate** then **Build PDF**.
+3. Download the PDF or `.tex`. Builds are saved to `output/resumes/<Company>_<Role>_<date>.pdf|tex` and listed in the history table.
+
+**What the validator blocks:** unknown keys, wrong row/bullet counts, em/en dashes, first-person words in bullets,
+any number that is not in `BULLET_BANK.md` (no invented metrics), and LaTeX commands such as `\write` or `\input`.
+It warns about tools missing from your bank, anything on your do-not-claim list, and bullets over 190 characters
+(your own base bullets are sometimes longer; the real one-page check happens after the build).
+
 ## Data Sources
 
 | Platform | API Type | Companies | Notes |

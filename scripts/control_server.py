@@ -13,9 +13,13 @@ Works on Windows, macOS and Linux. It serves output/latest.html and exposes:
     POST /stop     -> stop the running scrape
     GET  /applications  -> every tracked application (the dashboard's tracker)
     POST /applications  -> body {"applications": [...]}; saves them (newest updated_at wins)
+    GET  /api/resumes ...      -> Resume Studio (base resumes, history, downloads); see src/resume_studio
+    POST /api/resumes/validate -> check a tailoring patch;  POST /api/resumes/build -> build the PDF
     GET  /         -> the latest dashboard
 
-Everything binds to 127.0.0.1 only; nothing is reachable from other machines.
+Everything binds to 127.0.0.1 only; nothing is reachable from other machines. Requests whose Host or
+Origin is not localhost/127.0.0.1 (or a file:// page, which browsers send as "null") are rejected, so
+other websites open in your browser can't call these endpoints.
 """
 from __future__ import annotations
 
@@ -23,6 +27,7 @@ import argparse
 import json
 import mimetypes
 import os
+import re
 import signal
 import sqlite3
 import subprocess
@@ -250,28 +255,82 @@ def ensure_dashboard():
         pass
 
 
+LOCAL_HOST_RE = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$", re.IGNORECASE)
+LOCAL_ORIGIN_RE = re.compile(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$", re.IGNORECASE)
+MAX_BODY = 2_000_000
+RESUME_FILE_RE = re.compile(r"^/api/resumes/file/(\d+)\.(tex|pdf)$")
+RESUME_BASE_RE = re.compile(r"^/api/resumes/([A-Za-z0-9_-]{1,60})$")
+
+
+def request_allowed(headers) -> bool:
+    """Only localhost pages (or file:// pages, sent as Origin 'null') may use the API."""
+    if not LOCAL_HOST_RE.match(headers.get("Host", "") or ""):
+        return False          # also blocks DNS-rebinding
+    origin = headers.get("Origin")
+    return origin is None or origin == "null" or bool(LOCAL_ORIGIN_RE.match(origin))
+
+
+def _with_db(fn):
+    from src.db import JobDB
+    db = JobDB(DB_FILE)
+    try:
+        return fn(db)
+    finally:
+        db.close()
+
+
 class Handler(BaseHTTPRequestHandler):
+    def _cors(self):
+        origin = self.headers.get("Origin")
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
     def _json(self, code: int, payload: dict):
         body = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self._cors()
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
+    def _guard(self) -> bool:
+        if request_allowed(self.headers):
+            return True
+        self._json(403, {"ok": False, "message": "Forbidden: this API only accepts requests from localhost."})
+        return False
+
+    def _send_file(self, path: Path, ctype: str, download_name: str | None = None):
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        if download_name:
+            self.send_header("Content-Disposition", f'attachment; filename="{download_name}"')
+        self._cors()
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_OPTIONS(self):  # noqa: N802
-        self._json(204, {})
+        if self._guard():
+            self._json(204, {})
 
     def do_GET(self):  # noqa: N802
-        path = unquote(urlparse(self.path).path)
+        if not self._guard():
+            return
+        parsed = urlparse(self.path)
+        path = unquote(parsed.path)
         if path == "/status":
             return self._json(200, status())
         if path == "/applications":
             return self._json(200, {"applications": load_applications()})
+        if path.startswith("/api/"):
+            return self._api_get(path, parsed.query)
         if path in ("/", ""):
             path = "/latest.html"
         target = (OUTPUT_DIR / path.lstrip("/")).resolve()
@@ -288,23 +347,74 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
             return self._json(404, {"error": "not found"})
-        data = target.read_bytes()
         ctype = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-        self.send_response(200)
-        self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text/") else ""))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        self._send_file(target, ctype + ("; charset=utf-8" if ctype.startswith("text/") else ""))
+
+    # ---- Resume Studio / job lookups ----
+    def _api_get(self, path: str, query: str):
+        from urllib.parse import parse_qs
+
+        from src.resume_studio import paths as rs_paths, render as rs_render, service as rs_service
+        from src.resume_studio.compile import find_latex
+
+        if path == "/api/resumes":
+            latex = find_latex()
+            return self._json(200, {"bases": rs_render.list_bases(), "using_sample": rs_paths.using_sample(),
+                                    "latex": latex[0] if latex else None})
+        if path == "/api/resumes/history":
+            return self._json(200, {"history": _with_db(lambda db: db.list_tailored_resumes())})
+        m = RESUME_FILE_RE.match(path)
+        if m:
+            found = _with_db(lambda db: rs_service.file_for(db, int(m.group(1)), m.group(2)))
+            if not found:
+                return self._json(404, {"error": "file not found"})
+            fpath, ctype = found
+            return self._send_file(fpath, ctype, fpath.name)
+        if path == "/api/job":
+            key = (parse_qs(query).get("key") or [""])[0]
+            job = _with_db(lambda db: db.get_job_by_key(key)) if key else None
+            if not job:
+                return self._json(404, {"error": "job not found"})
+            return self._json(200, {"job": {
+                "company": job["company_name"], "title": job["title"], "location": job["location_parsed"],
+                "apply_url": job["apply_url"], "description": (job.get("description_text") or "")[:60000]}})
+        m = RESUME_BASE_RE.match(path)
+        if m:
+            try:
+                return self._json(200, {"base": rs_render.load_base(m.group(1))})
+            except KeyError:
+                return self._json(404, {"error": "unknown base resume"})
+        return self._json(404, {"error": "not found"})
+
+    def _api_post(self, path: str, data: dict):
+        from src.resume_studio import service as rs_service
+
+        if path == "/api/resumes/validate":
+            return self._json(200, rs_service.validate(str(data.get("base") or ""), data.get("patch")))
+        if path == "/api/resumes/build":
+            result = _with_db(lambda db: rs_service.build(db, data))
+            return self._json(200 if result.get("ok") else 422, result)
+        return self._json(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
-        length = int(self.headers.get("Content-Length", 0) or 0)
+        if not self._guard():
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+        except ValueError:
+            return self._json(400, {"ok": False, "message": "bad Content-Length"})
+        if length > MAX_BODY:
+            return self._json(413, {"ok": False, "message": "request too large"})
         raw = self.rfile.read(length) if length else b"{}"
         try:
             data = json.loads(raw or b"{}")
         except json.JSONDecodeError:
             data = {}
+        if not isinstance(data, dict):
+            data = {}
         path = urlparse(self.path).path
+        if path.startswith("/api/"):
+            return self._api_post(path, data)
         if path == "/run":
             ok, msg = start_run(data.get("mode", "full"))
             return self._json(200 if ok else 409, {"ok": ok, "message": msg})

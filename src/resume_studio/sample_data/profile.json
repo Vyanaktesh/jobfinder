@@ -1,0 +1,14 @@
+{
+  "name": "Jordan Sample",
+  "location": "Springfield, USA",
+  "phone": "+1 555-010-0100",
+  "email": "jordan.sample@example.com",
+  "linkedin": "linkedin.com/in/jordan-sample",
+  "github": "github.com/jordan-sample",
+  "education": [
+    {"school": "Example State University", "loc": "Springfield, USA",
+     "degree": "M.S. Computer Science, GPA: 3.9/4.0", "date": "May 2026 (Expected)"},
+    {"school": "Sample Institute of Technology", "loc": "Shelbyville, USA",
+     "degree": "B.E. Electronics & Telecommunication", "date": "Jun. 2023"}
+  ]
+}

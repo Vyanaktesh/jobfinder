@@ -52,6 +52,7 @@ def render_dashboard(jobs: list[dict], stats: dict, output_dir: Path, templates_
     static_dir = templates_dir.parent / "static"
     css = (static_dir / "style.css").read_text(encoding="utf-8") if (static_dir / "style.css").exists() else ""
     js = (static_dir / "dashboard.js").read_text(encoding="utf-8") if (static_dir / "dashboard.js").exists() else ""
+    studio_js = (static_dir / "resume_studio.js").read_text(encoding="utf-8") if (static_dir / "resume_studio.js").exists() else ""
     autofill_path = output_dir / "autofill.js"
     autofill_js = autofill_path.read_text(encoding="utf-8") if autofill_path.exists() else ""
 
@@ -69,6 +70,7 @@ def render_dashboard(jobs: list[dict], stats: dict, output_dir: Path, templates_
         autofill_js=autofill_js,
         inline_css=css,
         inline_js=js.replace("</script", "<\\/script"),
+        inline_studio_js=studio_js.replace("</script", "<\\/script"),
     )
 
     path = output_dir / "latest.html"

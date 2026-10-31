@@ -68,7 +68,7 @@
   function setActiveTab(type) {
     typeFilter = type;
     typeTabs.forEach(t => t.classList.toggle('active', t.dataset.type === type));
-    showTrackerView(type === 'tracker');
+    showTrackerView(type === 'tracker', type === 'studio');
   }
 
   function applyFilters() {
@@ -361,13 +361,18 @@
 
   function fmtDate(iso) { return iso ? iso.slice(0, 10) : ''; }
 
-  function showTrackerView(on) {
+  const studioView = document.getElementById('studioView');
+
+  // Tabs 'tracker' and 'studio' replace the job list with their own panel.
+  function showTrackerView(on, studio) {
     ['.controls', '#jobTable', '#emptyState'].forEach(sel => {
       const el = document.querySelector(sel);
-      if (el) el.hidden = on;
+      if (el) el.hidden = on || !!studio;
     });
     if (trackerView) trackerView.hidden = !on;
+    if (studioView) studioView.hidden = !studio;
     if (on && trackerReady) renderTracker();
+    if (studio && window.ResumeStudio) window.ResumeStudio.onShow();
   }
 
   function renderTracker() {
@@ -458,7 +463,17 @@
     ta.value = a.notes || '';
     ta.onchange = () => setNotes(a.job_key, ta.value);
     cell(ta);
-    cell('');
+    const tailor = document.createElement('button');
+    tailor.type = 'button';
+    tailor.className = 'toolbar-btn tailor-btn';
+    tailor.textContent = 'Tailor resume';
+    tailor.title = 'Open Resume Studio for this job';
+    tailor.onclick = () => {
+      setActiveTab('studio');
+      applyFilters();
+      if (window.ResumeStudio) window.ResumeStudio.openFor({ company: a.company, role: a.title, key: a.job_key });
+    };
+    cell(tailor);
     return tr;
   }
 
